@@ -1,0 +1,2 @@
+dedup,runs,seconds,seconds_min,seconds_max,peak_memory_mib,memory_method,exact_sets,near_sets,pairs,labelled_pairs,correct_pairs,precision,recall
+SSCD disc_mixup >=0.75,3,73.070,58.353,77.034,1242.7,cgroup,,23,23,314,23,1.0000,0.0732

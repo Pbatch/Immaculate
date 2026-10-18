@@ -1,0 +1,24 @@
+[project]
+name = "benchmark-sscd"
+version = "0"
+requires-python = "==3.12.*"
+dependencies = [
+    "loguru==0.7.3",
+    "numpy==2.5.4",
+    "pillow==13.0.0",
+    # CPU builds, so SSCD runs on the same hardware as the other libraries
+    "torch==2.14.1",
+    "torchvision==0.29.1",
+]
+
+[tool.uv]
+package = false
+
+[tool.uv.sources]
+torch = { index = "pytorch-cpu" }
+torchvision = { index = "pytorch-cpu" }
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true

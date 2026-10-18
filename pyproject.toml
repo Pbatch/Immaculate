@@ -1,0 +1,75 @@
+[project]
+name = "Immaculate"
+version = "0.1.0"
+description = "Find exact and near-duplicate images in a folder, fast."
+readme = "README.md"
+authors = [{ name = "Peter Batchelor" }]
+license = "LicenseRef-Proprietary"
+license-files = ["LICENSE"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+]
+requires-python = ">=3.12"
+dependencies = []
+
+[dependency-groups]
+benchmark = [
+    # Only what benchmark_duplicates.py needs; each library has its own environment in
+    # benchmark/envs
+    "loguru==0.7.3",
+    "pillow==13.0.0",
+    "pyarrow==26.0.0",
+]
+dev = [
+    "pillow==13.0.0",
+    "pre-commit==4.6.1",
+    "pytest==9.1.1",
+    "ruff==0.16.1",
+    "ty==0.0.65",
+]
+
+[build-system]
+requires = ["maturin==1.15.0"]
+build-backend = "maturin"
+
+[tool.maturin]
+python-source = "src"
+module-name = "immaculate._core"
+features = ["pyo3/extension-module"]
+# The benchmark suite and its multi-GB image data aren't part of the package
+exclude = [
+    { path = "benchmark/**/*", format = "sdist" },
+    { path = "DEPLOYMENT.md", format = "sdist" },
+]
+
+[tool.uv]
+# Rebuild the Rust extension when its sources change
+cache-keys = [{ file = "pyproject.toml" }, { file = "Cargo.toml" }, { file = "rust/**/*.rs" }]
+default-groups = ["dev", "benchmark"]
+
+[tool.pytest.ini_options]
+addopts = "-q"
+testpaths = ["tests"]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["ALL"]
+ignore = [
+    "COM812",  # Conflicts with the formatter
+    "CPY001",  # Copyright headers are not required
+    "D",       # Public API docstrings are not mandatory
+    "INP001",  # scripts and tests are intentionally not packages
+    "ISC001",  # Conflicts with the formatter
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S101"]
+# Launching the deduplicators in subprocesses is its job; commands are built from fixed paths
+"benchmark/benchmark_duplicates.py" = ["S603", "S607"]
+
+[tool.ty.src]
+# The libraries the deduplicators wrap are only installed in their own environments
+exclude = ["benchmark/dedups/*_dedup.py", "benchmark/envs"]

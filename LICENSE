@@ -1,0 +1,40 @@
+Proprietary License
+
+Copyright (c) 2026 Peter Batchelor. All rights reserved.
+
+This software and its associated documentation (the "Software") are the
+proprietary property of the copyright holder. The Software is made
+available through the Python Package Index (PyPI) under the following
+terms.
+
+1. Permitted use. You may download, install, and use the Software, in the
+   unmodified form distributed by the copyright holder, for any personal
+   or commercial purpose, including as a dependency of your own software.
+
+2. Restrictions. Except as expressly permitted above, you may not:
+   a. copy, reproduce, or republish the source code of the Software, in
+      whole or in part, other than the copies made automatically when
+      installing and running it;
+   b. modify, translate, adapt, or create derivative works based on the
+      Software;
+   c. distribute, sublicense, sell, rent, lease, or otherwise make the
+      Software available to any third party other than through the
+      copyright holder's official distribution channels; or
+   d. remove or alter any copyright, license, or proprietary notices in
+      the Software.
+
+3. Reservation of rights. The Software is licensed, not sold. All rights
+   not expressly granted in this license are reserved by the copyright
+   holder.
+
+4. Termination. This license terminates automatically if you breach any
+   of its terms. On termination you must stop using the Software and
+   delete all copies in your possession.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+COPYRIGHT HOLDER BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
+WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF
+OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.

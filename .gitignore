@@ -1,0 +1,16 @@
+benchmark/data/
+benchmark/results/raw/
+DEPLOYMENT.md
+MEMORY.md
+
+# Rust
+target/
+
+# Python
+__pycache__/
+*.py[cod]
+*.so
+.venv/
+dist/
+.pytest_cache/
+.ruff_cache/

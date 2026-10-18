@@ -1,0 +1,15 @@
+[project]
+name = "benchmark-immaculate"
+version = "0"
+requires-python = "==3.12.*"
+dependencies = [
+    "immaculate",
+    "loguru==0.7.3",
+]
+
+[tool.uv]
+package = false
+
+[tool.uv.sources]
+# Built from this repository as a release wheel, like users would install it
+immaculate = { path = "../../..", editable = false }

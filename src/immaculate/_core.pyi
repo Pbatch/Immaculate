@@ -1,0 +1,9 @@
+from os import PathLike
+from pathlib import Path
+
+def find_duplicates(
+    input_dir: str | PathLike[str],
+    method: str = "pdq",
+) -> tuple[list[list[Path]], list[list[Path]], list[Path]]: ...
+def perceptual_hash(path: str | PathLike[str]) -> int | None: ...
+def pdq_hash(path: str | PathLike[str]) -> str | None: ...
