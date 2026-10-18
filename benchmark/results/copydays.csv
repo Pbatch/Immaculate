@@ -1,2 +1,14 @@
 dedup,runs,seconds,seconds_min,seconds_max,peak_memory_mib,memory_method,exact_sets,near_sets,pairs,labelled_pairs,correct_pairs,precision,recall
-SSCD disc_mixup >=0.75,3,73.070,58.353,77.034,1242.7,cgroup,,23,23,314,23,1.0000,0.0732
+CleanVision,3,3.432,3.195,3.526,1439.6,cgroup,0,2,2,314,2,1.0000,0.0064
+czkawka 12.0.2,3,1.158,1.155,1.196,524.2,cgroup,,0,0,314,0,,0.0000
+czkawka 12.0.2 dihedral,3,7.332,7.235,7.342,1131.7,cgroup,,0,0,314,0,,0.0000
+fastdup,3,4.162,4.093,4.194,457.9,cgroup,,2,2,314,2,1.0000,0.0064
+imagededup PHash,3,6.264,6.223,6.328,484.0,cgroup,,9,9,314,9,1.0000,0.0287
+imagededup CNN,3,7.441,7.380,7.537,1194.5,cgroup,,29,29,314,29,1.0000,0.0924
+imagehash pHash,3,1.760,1.732,1.780,424.1,cgroup,,2,2,314,2,1.0000,0.0064
+Immaculate,3,0.792,0.792,0.816,341.2,cgroup,0,2,2,314,2,1.0000,0.0064
+Immaculate pHash,3,0.993,0.981,1.103,366.3,cgroup,0,2,2,314,2,1.0000,0.0064
+Immaculate SSCD,3,7.948,7.946,7.972,731.2,cgroup,0,20,22,314,22,1.0000,0.0701
+PDQ <=31,3,9.574,9.074,10.153,994.4,cgroup,,2,2,314,2,1.0000,0.0064
+PDQ dihedral <=31,3,9.601,8.972,9.760,953.0,cgroup,,2,2,314,2,1.0000,0.0064
+SSCD disc_mixup >=0.75 (CUDA),1,6.099,6.099,6.099,1511.8,cgroup,,23,23,314,23,1.0000,0.0732

@@ -16,6 +16,8 @@ class ImmaculateDedup(Dedup):
         self.method = method
         if method == "phash":
             self.name = "Immaculate pHash"
+        elif method == "sscd":
+            self.name = "Immaculate SSCD"
 
     def find_duplicates(self, images_dir: Path) -> Duplicates:
         result = immaculate.find_duplicates(images_dir, self.method)

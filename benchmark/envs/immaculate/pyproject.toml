@@ -5,6 +5,7 @@ requires-python = "==3.12.*"
 dependencies = [
     "immaculate",
     "loguru==0.7.3",
+    "onnxruntime==1.31.0",
 ]
 
 [tool.uv]

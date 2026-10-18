@@ -10,7 +10,15 @@ classifiers = [
     "Programming Language :: Python :: 3",
 ]
 requires-python = ">=3.12"
-dependencies = []
+dependencies = [
+    # Runs the "sscd" method's model; the Rust bindings need 1.17 or later
+    "onnxruntime>=1.17",
+]
+
+[project.urls]
+Documentation = "https://pbatch.github.io/Immaculate/"
+Repository = "https://github.com/Pbatch/Immaculate"
+Issues = "https://github.com/Pbatch/Immaculate/issues"
 
 [dependency-groups]
 benchmark = [
@@ -26,6 +34,13 @@ dev = [
     "pytest==9.1.1",
     "ruff==0.16.1",
     "ty==0.0.65",
+]
+docs = [
+    "mkdocs==1.6.1",
+    "mkdocs-material==9.7.7",
+    "mkdocstrings==1.0.7",
+    "mkdocstrings-python==2.0.9",
+    "ruff==0.16.1",
 ]
 
 [build-system]

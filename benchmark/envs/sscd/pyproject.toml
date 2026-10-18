@@ -5,8 +5,11 @@ requires-python = "==3.12.*"
 dependencies = [
     "loguru==0.7.3",
     "numpy==2.5.4",
+    # For dev/export_sscd_onnx.py; not used when benchmarking
+    "onnx==1.23.2",
+    "onnxruntime==1.31.0",
     "pillow==13.0.0",
-    # CPU builds, so SSCD runs on the same hardware as the other libraries
+    # CUDA builds, to run SSCD on the GPU
     "torch==2.14.1",
     "torchvision==0.29.1",
 ]
@@ -15,10 +18,10 @@ dependencies = [
 package = false
 
 [tool.uv.sources]
-torch = { index = "pytorch-cpu" }
-torchvision = { index = "pytorch-cpu" }
+torch = { index = "pytorch-cu130" }
+torchvision = { index = "pytorch-cu130" }
 
 [[tool.uv.index]]
-name = "pytorch-cpu"
-url = "https://download.pytorch.org/whl/cpu"
+name = "pytorch-cu130"
+url = "https://download.pytorch.org/whl/cu130"
 explicit = true

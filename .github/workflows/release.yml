@@ -1,0 +1,110 @@
+name: Release
+
+# Builds the sdist and a wheel for each platform ONNX Runtime has wheels for, tests each
+# wheel on its own platform, and on a version tag publishes them to TestPyPI, then PyPI; see
+# DEPLOYMENT.md
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  wheels:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+          - os: ubuntu-24.04-arm
+          - os: macos-latest
+          # ONNX Runtime's last Intel Mac wheels are 1.23.2, which pip picks there
+          - os: macos-15-intel
+          - os: windows-latest
+          - os: windows-11-arm
+            python-arch: arm64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v5
+      - id: python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          architecture: ${{ matrix.python-arch }}
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: PyO3/maturin-action@v1
+        with:
+          maturin-version: v1.15.0
+          args: --release --out dist
+          # ONNX Runtime's own Linux wheels need glibc 2.28
+          manylinux: "2_28"
+      - uses: astral-sh/setup-uv@v6
+      # Tests the built wheel, not the source tree: the dev group has no project, so syncing
+      # it doesn't build Immaculate
+      - name: Test the wheel
+        shell: bash
+        env:
+          UV_PYTHON: ${{ steps.python.outputs.python-path }}
+        run: |
+          uv sync --locked --only-group dev
+          uv pip install dist/*.whl
+          uv run --no-sync pytest
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wheel-${{ matrix.os }}
+          path: dist/*.whl
+
+  sdist:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: PyO3/maturin-action@v1
+        with:
+          maturin-version: v1.15.0
+          command: sdist
+          args: --out dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sdist
+          path: dist/*.tar.gz
+
+  # Uploads use trusted publishing, so no tokens are stored; each index trusts this workflow
+  # in the environment named below
+  publish-testpypi:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [wheels, sdist]
+    runs-on: ubuntu-latest
+    environment:
+      name: testpypi
+      url: https://test.pypi.org/project/immaculate/
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      # PyPI never accepts a version twice, so a tag like v0.1.0-test mustn't upload 0.1.0
+      - name: Check the tag matches the version
+        run: test -f "dist/immaculate-${GITHUB_REF_NAME#v}.tar.gz"
+      - uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          repository-url: https://test.pypi.org/legacy/
+
+  # The pypi environment needs approval, so there's time to check the TestPyPI release first
+  publish-pypi:
+    needs: publish-testpypi
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/project/immaculate/
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - uses: pypa/gh-action-pypi-publish@release/v1

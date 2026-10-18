@@ -7,6 +7,9 @@ type DuplicateSets = set[frozenset[Path]]
 
 IMAGE_EXTENSIONS = {".bmp", ".gif", ".jpeg", ".jpg", ".png", ".tif", ".tiff", ".webp"}
 
+SSCD_ONNX_MODEL = Path(__file__).parents[1] / "data" / "models" / "sscd_disc_mixup.onnx"
+"""SSCD as ONNX, made by dev/export_sscd_onnx.py."""
+
 
 class Duplicates(NamedTuple):
     exact: DuplicateSets | None

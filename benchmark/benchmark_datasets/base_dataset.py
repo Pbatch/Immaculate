@@ -21,12 +21,19 @@ class GroundTruth:
     """Pairs of images that are duplicates."""
     ignored: DuplicatePairs = field(default_factory=set)
     """Ambiguous pairs, which count neither for nor against a library."""
+    labelled: Callable[[frozenset[Path]], bool] | None = None
+    """Which pairs the labels cover, when they only cover some kinds of pair. Like ignored
+    pairs, pairs outside them count neither for nor against a library."""
     complete: bool = True
-    """Whether every duplicate pair is labelled.
+    """Whether every duplicate pair the labels cover is labelled.
 
     If not, pairs a library finds that aren't labelled may still be duplicates, so precision
     can't be measured.
     """
+
+    def counts(self, pair: frozenset[Path]) -> bool:
+        """Whether a pair a library finds counts for or against it."""
+        return pair not in self.ignored and (self.labelled is None or self.labelled(pair))
 
 
 class Dataset(ABC):

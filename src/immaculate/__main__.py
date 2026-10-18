@@ -2,7 +2,7 @@
 
 python -m immaculate photos/
 python -m immaculate photos/ --json
-python -m immaculate photos/ --method pdq
+python -m immaculate photos/ --method sscd
 """
 
 import argparse
@@ -11,7 +11,7 @@ import sys
 from pathlib import Path
 from typing import get_args
 
-from immaculate import Duplicates, Method, find_duplicates
+from immaculate import Duplicates, Method, _core, find_duplicates
 
 
 def format_text(duplicates: Duplicates) -> str:
@@ -27,7 +27,7 @@ def format_text(duplicates: Duplicates) -> str:
             lines.extend(f"  {path}" for path in duplicate_set)
         sections.append("\n".join(lines))
     if duplicates.skipped:
-        lines = [f"Skipped (could not decode): {len(duplicates.skipped)}"]
+        lines = [f"Skipped (could not decode or empty): {len(duplicates.skipped)}"]
         lines.extend(f"  {path}" for path in duplicates.skipped)
         sections.append("\n".join(lines))
     return "\n\n".join(sections)
@@ -59,8 +59,8 @@ if __name__ == "__main__":
         prog="python -m immaculate",
         description=(
             "Find exact and near-duplicate images in a folder and its subfolders "
-            "(bmp, gif, jpeg, jpg, png, tif, tiff, webp). Exact duplicates have identical "
-            "pixels; near duplicates have matching perceptual hashes. Nothing is modified."
+            f"({', '.join(_core.IMAGE_EXTENSIONS)}). Exact duplicates have identical "
+            "pixels; near duplicates are found by --method. Nothing is modified."
         ),
     )
     parser.add_argument("input_dir", type=Path, help="folder to search")
@@ -74,8 +74,10 @@ if __name__ == "__main__":
         choices=get_args(Method.__value__),
         default="pdq",
         help=(
-            "how to find near duplicates: pdq (PDQ hashes within 31 bits, also matching "
-            "rotations and flips) or phash (identical pHash) (default: pdq)"
+            f"how to find near duplicates: pdq (PDQ hashes within {_core.PDQ_THRESHOLD} bits, "
+            "also matching rotations and flips), phash (identical pHash) or sscd (Meta's SSCD "
+            f"copy detection model, with embeddings at least {_core.SSCD_THRESHOLD:g} cosine "
+            "similar; also catches crops and overlays, but is much slower) (default: pdq)"
         ),
     )
     args = parser.parse_args()

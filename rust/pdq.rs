@@ -6,17 +6,16 @@
 //! matches C, all three are one set.
 
 use std::cell::RefCell;
-use std::collections::HashMap;
+use std::convert::Infallible;
 use std::f64::consts::PI;
-use std::fmt::Write;
 use std::rc::Rc;
 use std::sync::LazyLock;
 
-use image::DynamicImage;
-use rayon::prelude::*;
-
-use crate::perceptual_hash::PerceptualHash;
+use crate::multi_index::MultiIndex;
+use crate::perceptual_hash::{PerceptualHash, group_matching, group_with};
 use crate::rgb8;
+use crate::side_cache::SideCache;
+use image::DynamicImage;
 
 /// Side length images are filtered and decimated to before the DCT.
 const BUFFER_SIZE: usize = 64;
@@ -64,10 +63,13 @@ impl Default for Pdq {
 
 impl PerceptualHash for Pdq {
     type Hash = Orientations;
+    type Error = Infallible;
 
     /// Returns `None` if the image is empty.
-    fn hash(&self, image: &DynamicImage) -> Option<Orientations> {
-        let coefficients = dct_coefficients(image)?;
+    fn hash(&self, image: &DynamicImage) -> Result<Option<Orientations>, Infallible> {
+        let Some(coefficients) = dct_coefficients(image) else {
+            return Ok(None);
+        };
         // The DCT of a flipped or transposed image is the original DCT with some signs flipped
         // and/or transposed, so the other orientations don't need hashing from scratch. Each
         // coefficient's row (column) frequency is i + 1 (j + 1); flipping vertically
@@ -81,48 +83,38 @@ impl PerceptualHash for Pdq {
             for (i, row) in oriented.iter_mut().enumerate() {
                 for (j, value) in row.iter_mut().enumerate() {
                     let (u, v) = if transpose { (j, i) } else { (i, j) };
-                    let odd_row = u % 2 == 0;
-                    let odd_column = v % 2 == 0;
-                    let negate = (flip_vertical && odd_row) != (flip_horizontal && odd_column);
+                    // Frequencies are u + 1 and v + 1, so even u and v are odd frequencies
+                    let odd_row_frequency = u % 2 == 0;
+                    let odd_column_frequency = v % 2 == 0;
+                    let negate = (flip_vertical && odd_row_frequency)
+                        != (flip_horizontal && odd_column_frequency);
                     let coefficient = coefficients[u][v];
                     *value = if negate { -coefficient } else { coefficient };
                 }
             }
             *bits = to_bits(&oriented);
         }
-        Some(orientations)
+        Ok(Some(orientations))
     }
 
     fn group(&self, hashes: &[(usize, &Orientations)]) -> Vec<Vec<usize>> {
-        let matches: Vec<(usize, usize)> = (0..hashes.len())
-            .into_par_iter()
-            .flat_map_iter(|a| {
-                let orientations = hashes[a].1;
-                (a + 1..hashes.len())
-                    .filter(move |&b| {
-                        let other = &hashes[b].1[0];
-                        orientations
-                            .iter()
-                            .any(|bits| distance(bits, other) <= self.threshold)
-                    })
-                    .map(move |b| (a, b))
-            })
+        let unrotated = hashes
+            .iter()
+            .map(|(_, orientations)| orientations[0])
             .collect();
-
-        let mut sets = UnionFind::new(hashes.len());
-        for (a, b) in matches {
-            sets.union(a, b);
-        }
-        let mut groups: Vec<Vec<usize>> = vec![Vec::new(); hashes.len()];
-        for (position, &(index, _)) in hashes.iter().enumerate() {
-            groups[sets.find(position)].push(index);
-        }
-        // Positions are visited in ascending index order, so each group is already sorted and
-        // the groups are ordered by their first index once empty ones are removed.
-        let mut groups: Vec<Vec<usize>> =
-            groups.into_iter().filter(|group| group.len() > 1).collect();
-        groups.sort_unstable_by_key(|group| group[0]);
-        groups
+        let Some(index) = MultiIndex::new(unrotated, self.threshold) else {
+            return group_matching(hashes, |orientations, other| {
+                orientations
+                    .iter()
+                    .any(|bits| distance(bits, &other[0]) <= self.threshold)
+            });
+        };
+        // Each image's orientations against the later images as they are, as above
+        group_with(hashes, |a, sets| {
+            for bits in hashes[a].1 {
+                index.find(bits, a + 1, |b| sets.union(a, b));
+            }
+        })
     }
 }
 
@@ -132,15 +124,16 @@ pub fn distance(a: &Bits, b: &Bits) -> u32 {
 }
 
 /// Formats a hash as 64 hex digits, as Meta's tools do.
+#[expect(
+    clippy::format_collect,
+    reason = "only used for single hashes; `write!` would need its infallible error handled"
+)]
 pub fn to_hex(bits: &Bits) -> String {
     // Meta stores the hash as 16-bit words with bit k in word k / 16, printed last word first
     (0..16)
         .rev()
-        .fold(String::with_capacity(64), |mut hex, word| {
-            let value = (bits[word / 4] >> (16 * (word % 4))) & 0xffff;
-            write!(hex, "{value:04x}").unwrap_or_else(|_| unreachable!("writing to a String"));
-            hex
-        })
+        .map(|word| format!("{:04x}", (bits[word / 4] >> (16 * (word % 4))) & 0xffff))
+        .collect()
 }
 
 /// The 16x16 low-frequency DCT coefficients of the image's luma, after blurring it with a
@@ -250,27 +243,14 @@ impl Tap {
     }
 }
 
-/// Most image side lengths whose taps are cached, bounding the cache's memory.
-const MAX_CACHED_TAPS: usize = 64;
-
 thread_local! {
-    /// Each thread's [`axis_taps`] by side length, since most folders have only a few image
-    /// sizes.
-    static TAPS: RefCell<HashMap<usize, Rc<[Tap]>>> = RefCell::default();
+    /// Each thread's [`axis_taps`] by side length.
+    static TAPS: RefCell<SideCache<usize, Tap>> = RefCell::default();
 }
 
 /// [`axis_taps`] for `length`, computed once per side length on each thread.
 fn cached_axis_taps(length: usize) -> Rc<[Tap]> {
-    TAPS.with_borrow_mut(|cache| {
-        if cache.len() >= MAX_CACHED_TAPS && !cache.contains_key(&length) {
-            cache.clear();
-        }
-        Rc::clone(
-            cache
-                .entry(length)
-                .or_insert_with(|| axis_taps(length).into()),
-        )
-    })
+    TAPS.with_borrow_mut(|cache| cache.get(length, || axis_taps(length)))
 }
 
 /// The weights each of the 64 samples along an axis of `length` pixels gives each pixel,
@@ -349,34 +329,10 @@ fn to_bits(coefficients: &[[f32; DCT_SIZE]; DCT_SIZE]) -> Bits {
     bits
 }
 
-struct UnionFind {
-    parent: Vec<usize>,
-}
-
-impl UnionFind {
-    fn new(size: usize) -> Self {
-        Self {
-            parent: (0..size).collect(),
-        }
-    }
-
-    fn find(&mut self, mut item: usize) -> usize {
-        while self.parent[item] != item {
-            self.parent[item] = self.parent[self.parent[item]];
-            item = self.parent[item];
-        }
-        item
-    }
-
-    fn union(&mut self, a: usize, b: usize) {
-        let (a, b) = (self.find(a), self.find(b));
-        self.parent[a.max(b)] = a.min(b);
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_util::XorShift;
 
     /// The reference implementation's box filter: the mean of a `window`-wide window around
     /// each value, shrinking at the edges.
@@ -405,6 +361,33 @@ mod tests {
             output.push(sum / count);
         }
         output
+    }
+
+    #[test]
+    fn group_matches_comparing_every_pair() {
+        let mut rng = XorShift(0x2545_f491_4f6c_dd1d);
+        // Unrelated images, near copies of each other, and one large set of identical hashes
+        let mut hashes: Vec<Orientations> =
+            (0..300).map(|_| [(); 8].map(|()| rng.bits())).collect();
+        for position in 0..300 {
+            let mut copy = hashes[position];
+            for bit in 0..position % 60 {
+                copy[0][bit / 64] ^= 1 << (bit % 64);
+            }
+            copy.swap(0, position % 8);
+            hashes.push(copy);
+        }
+        hashes.extend(std::iter::repeat_n(hashes[7], 500));
+
+        let indexed: Vec<(usize, &Orientations)> = hashes.iter().enumerate().collect();
+        let pdq = Pdq::default();
+        let expected = group_matching(&indexed, |orientations, other| {
+            orientations
+                .iter()
+                .any(|bits| distance(bits, &other[0]) <= pdq.threshold)
+        });
+        assert!(expected.iter().any(|group| group.len() > 500));
+        assert_eq!(pdq.group(&indexed), expected);
     }
 
     #[test]

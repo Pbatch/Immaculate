@@ -13,10 +13,7 @@ Each run's raw results are saved as JSON, and each dataset's summary to a CSV fi
 library. fastdup only runs on CPython 3.12 on Linux x86_64 or macOS arm64, and is skipped
 elsewhere.
 
-    uv run benchmark/benchmark_duplicates.py --dataset copydays --repeats 3 \
-        --dedup cleanvision --dedup fastdup --dedup imagededup-phash --dedup imagededup-cnn \
-        --dedup immaculate --dedup immaculate-phash --dedup pdq --dedup pdq-dihedral \
-        --dedup sscd-disc-mixup
+    uv run benchmark/benchmark_duplicates.py --dataset copydays --repeats 3 --dedup all
 """
 
 import argparse
@@ -38,7 +35,7 @@ from typing import Any, NamedTuple
 from benchmark_datasets.base_dataset import Dataset, DuplicatePairs, GroundTruth
 from benchmark_datasets.cifar import CIFAR10, CIFAR100
 from benchmark_datasets.copydays import Copydays
-from benchmark_datasets.oxford_pets import OxfordPets
+from benchmark_datasets.disc import DISC2021
 from benchmark_datasets.ukbench import UKBench, UKBenchExact, UKBenchTransformed
 from dedups.base_dedup import Duplicates, DuplicateSets
 from dedups.registry import DEDUPS
@@ -80,13 +77,13 @@ CSV_FIELDS = [
 DATASETS: dict[str, Dataset] = {
     dataset.key: dataset
     for dataset in (
-        OxfordPets(),
         UKBench(),
         UKBenchTransformed(),
         UKBenchExact(),
         Copydays(),
         CIFAR10(),
         CIFAR100(),
+        DISC2021(),
     )
 }
 
@@ -321,7 +318,7 @@ class Score(NamedTuple):
 
 
 def score(truth: GroundTruth, found: DuplicatePairs) -> Score:
-    counted = found - truth.ignored
+    counted = {pair for pair in found if truth.counts(pair)}
     correct = len(counted & truth.duplicates)
     recall = correct / len(truth.duplicates) if truth.duplicates else 0.0
     precision = correct / len(counted) if truth.complete and counted else None
@@ -407,6 +404,11 @@ def save_csv(path: Path, rows: list[dict[str, Any]]) -> None:
     logger.info(f"Saved results to {path}")
 
 
+def expand_all(keys: list[str], every: dict[str, Any]) -> list[str]:
+    """`keys`, or every key in `every` if one of them is "all"."""
+    return list(every) if "all" in keys else keys
+
+
 def main(  # noqa: PLR0913 - one parameter per command-line option
     datasets: list[str],
     dedup_keys: list[str],
@@ -447,16 +449,18 @@ if __name__ == "__main__":
     parser.add_argument(
         "--dataset",
         dest="datasets",
-        action="append",
-        choices=DATASETS,
-        help="dataset to benchmark; repeat for several (default: ukbench-transformed)",
+        nargs="+",
+        action="extend",
+        choices=[*DATASETS, "all"],
+        help="datasets to benchmark, or all (default: ukbench-transformed)",
     )
     parser.add_argument(
         "--dedup",
         dest="dedups",
-        action="append",
-        choices=DEDUPS,
-        help="deduplicator to run; repeat for several (default: immaculate)",
+        nargs="+",
+        action="extend",
+        choices=[*DEDUPS, "all"],
+        help="deduplicators to run, or all (default: immaculate)",
     )
     parser.add_argument(
         "--repeats", type=int, default=1, help="times to run each deduplicator (default: 1)"
@@ -499,8 +503,8 @@ if __name__ == "__main__":
     )
     args = parser.parse_args()
     main(
-        args.datasets or [UKBenchTransformed.key],
-        args.dedups or ["immaculate"],
+        expand_all(args.datasets or [UKBenchTransformed.key], DATASETS),
+        expand_all(args.dedups or ["immaculate"], DEDUPS),
         args.data_dir,
         args.output_dir,
         repeats=args.repeats,

@@ -1,2 +1,8 @@
-dedup,seconds,peak_memory_mib,exact_sets,near_sets,pairs,labelled_pairs,correct_pairs,precision,recall
-Immaculate,11.622,197.9,0,1707,1707,27000,1707,1.0000,0.0632
+dedup,runs,seconds,seconds_min,seconds_max,peak_memory_mib,memory_method,exact_sets,near_sets,pairs,labelled_pairs,correct_pairs,precision,recall,micro_ap,recall_at_p90
+Immaculate,1,6.931,6.931,6.931,59.5,cgroup,0,1800,10782,27000,10782,1.0000,0.3993,0.3993,0.3993
+Immaculate SSCD,1,197.193,197.193,197.193,187.4,cgroup,0,1800,23196,27000,23196,1.0000,0.8591,0.8591,0.8591
+imagededup CNN,1,107.139,107.139,107.139,2226.5,cgroup,,20620,20620,27000,20381,0.9884,0.7549,0.7533,0.7549
+CleanVision,1,52.154,52.154,52.154,545.2,cgroup,0,1693,1693,27000,1693,1.0000,0.0627,0.0627,0.0627
+imagehash pHash,1,5.135,5.135,5.135,496.8,cgroup,,1693,1693,27000,1693,1.0000,0.0627,0.0627,0.0627
+czkawka 12.0.2,1,4.334,4.334,4.334,63.1,cgroup,,31,31,27000,31,1.0000,0.0011,0.0011,0.0011
+czkawka 12.0.2 dihedral,1,23.158,23.158,23.158,120.0,cgroup,,1807,4359,27000,4359,1.0000,0.1614,0.1614,0.1614
