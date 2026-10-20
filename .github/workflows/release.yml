@@ -45,10 +45,12 @@ jobs:
       # it doesn't build Immaculate
       - name: Test the wheel
         shell: bash
+        # Only uv sync is given the Python: with UV_PYTHON set, uv pip would install into that
+        # interpreter instead of .venv
         env:
-          UV_PYTHON: ${{ steps.python.outputs.python-path }}
+          PYTHON: ${{ steps.python.outputs.python-path }}
         run: |
-          uv sync --locked --only-group dev
+          uv sync --locked --only-group dev --python "$PYTHON"
           uv pip install dist/*.whl
           uv run --no-sync pytest
       - uses: actions/upload-artifact@v4
