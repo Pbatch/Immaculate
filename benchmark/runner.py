@@ -91,7 +91,20 @@ def run(key: str, images_dir: Path, threads: int) -> dict[str, Any]:
     return record
 
 
-def main() -> None:
+def main(dedup: str, images_dir: Path, out: Path, *, threads: int, cgroup: bool) -> None:
+    record = run(dedup, images_dir.resolve(), threads)
+    # Read before writing the JSON, so serializing the results isn't counted
+    peak = cgroup_peak() if cgroup else None
+    record |= (
+        {"peak_memory_bytes": peak, "memory_method": "cgroup"}
+        if peak is not None
+        else {"peak_memory_bytes": maxrss_peak(), "memory_method": "maxrss"}
+    )
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(json.dumps(record))
+
+
+if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--dedup", required=True, choices=DEDUPS)
     parser.add_argument("--images", type=Path, required=True)
@@ -101,18 +114,4 @@ def main() -> None:
         "--cgroup", action="store_true", help="measure memory with this process's cgroup"
     )
     args = parser.parse_args()
-
-    record = run(args.dedup, args.images.resolve(), args.threads)
-    # Read before writing the JSON, so serializing the results isn't counted
-    peak = cgroup_peak() if args.cgroup else None
-    record |= (
-        {"peak_memory_bytes": peak, "memory_method": "cgroup"}
-        if peak is not None
-        else {"peak_memory_bytes": maxrss_peak(), "memory_method": "maxrss"}
-    )
-    args.out.parent.mkdir(parents=True, exist_ok=True)
-    args.out.write_text(json.dumps(record))
-
-
-if __name__ == "__main__":
-    main()
+    main(args.dedup, args.images, args.out, threads=args.threads, cgroup=args.cgroup)

@@ -1,13 +1,14 @@
 //! pHash, as in the `imagehash` library. Images match when their hashes are identical.
 
 use std::cell::RefCell;
-use std::collections::HashMap;
+use std::convert::Infallible;
 use std::f64::consts::PI;
-use std::rc::Rc;
+use std::sync::LazyLock;
 
 use image::DynamicImage;
 
 use crate::perceptual_hash::PerceptualHash;
+use crate::side_cache::SideCache;
 use crate::{group_by_key, rgb8};
 
 /// Side length of the DCT block, giving `HASH_SIZE²` bits.
@@ -16,7 +17,7 @@ const HASH_SIZE: usize = 8;
 const IMAGE_SIZE: usize = HASH_SIZE * 4;
 /// `IMAGE_SIZE` as a `u32`, for converting to floats.
 #[expect(clippy::cast_possible_truncation, reason = "the image size is 32")]
-const IMAGE_SIDE: u32 = IMAGE_SIZE as u32;
+const IMAGE_SIZE_U32: u32 = IMAGE_SIZE as u32;
 /// Fractional bits in Pillow's fixed-point weights for resampling 8-bit images.
 const PRECISION_BITS: u32 = 32 - 8 - 2;
 /// Lanczos3's support, in input pixels at scale 1.
@@ -25,14 +26,28 @@ const LANCZOS_SUPPORT: f64 = 3.0;
 /// 64-bit pHash, matching identical hashes.
 pub struct PHash;
 
+/// DCT-II basis for the lowest frequencies. Scipy's unnormalized DCT also multiplies by 2,
+/// which doesn't change which coefficients are above the median.
+static DCT_BASIS: LazyLock<[[f64; IMAGE_SIZE]; HASH_SIZE]> = LazyLock::new(|| {
+    let mut basis = [[0.0; IMAGE_SIZE]; HASH_SIZE];
+    for (row, k) in basis.iter_mut().zip(0_u32..) {
+        for (value, n) in row.iter_mut().zip(0_u32..) {
+            let n = f64::from(n);
+            *value = (PI * f64::from(k) * 2.0f64.mul_add(n, 1.0)
+                / (2.0 * f64::from(IMAGE_SIZE_U32)))
+            .cos();
+        }
+    }
+    basis
+});
+
 /// Working memory for [`shrink_luma`]: one image row of grayscale, the rows its horizontal
-/// pass produces, and resize weights by image dimension, since most folders have only a
-/// few image sizes.
+/// pass produces, and resize weights by image dimension.
 #[derive(Default)]
 struct Scratch {
     luma: Vec<i16>,
     narrow_rows: Vec<[u8; IMAGE_SIZE]>,
-    kernels: HashMap<u32, Rc<[Kernel]>>,
+    kernels: SideCache<u32, Kernel>,
 }
 
 thread_local! {
@@ -42,6 +57,7 @@ thread_local! {
 
 impl PerceptualHash for PHash {
     type Hash = u64;
+    type Error = Infallible;
 
     /// Computes a 64-bit perceptual hash, following `imagehash.phash`.
     ///
@@ -50,39 +66,26 @@ impl PerceptualHash for PHash {
     /// in row-major order with the first coefficient as the most significant bit.
     ///
     /// Returns `None` if the image can't be resized, e.g. because it is empty.
-    fn hash(&self, image: &DynamicImage) -> Option<u64> {
-        let size = IMAGE_SIZE;
-        let small = SCRATCH.with_borrow_mut(|scratch| shrink_luma(image, scratch))?;
-        let pixels: Vec<f64> = small
-            .iter()
-            .flatten()
-            .map(|&pixel| f64::from(pixel))
-            .collect();
-
-        // DCT-II basis for the lowest frequencies. Scipy's unnormalized DCT also multiplies
-        // by 2, which doesn't change which coefficients are above the median.
-        let mut basis = [[0.0; IMAGE_SIZE]; HASH_SIZE];
-        for (row, k) in basis.iter_mut().zip(0_u32..) {
-            for (value, n) in row.iter_mut().zip(0_u32..) {
-                let n = f64::from(n);
-                *value = (PI * f64::from(k) * 2.0f64.mul_add(n, 1.0)
-                    / (2.0 * f64::from(IMAGE_SIDE)))
-                .cos();
-            }
-        }
+    fn hash(&self, image: &DynamicImage) -> Result<Option<u64>, Infallible> {
+        let Some(small) = SCRATCH.with_borrow_mut(|scratch| shrink_luma(image, scratch)) else {
+            return Ok(None);
+        };
+        let basis = &*DCT_BASIS;
 
         // Separable 2D DCT: along columns (axis 0), then along rows (axis 1).
         let mut columns = [[0.0; IMAGE_SIZE]; HASH_SIZE];
         for (u, out_row) in columns.iter_mut().enumerate() {
             for (x, out) in out_row.iter_mut().enumerate() {
-                *out = (0..size).map(|y| basis[u][y] * pixels[y * size + x]).sum();
+                *out = (0..IMAGE_SIZE)
+                    .map(|y| basis[u][y] * f64::from(small[y][x]))
+                    .sum();
             }
         }
         let mut coefficients = [0.0; HASH_SIZE * HASH_SIZE];
         for u in 0..HASH_SIZE {
             for v in 0..HASH_SIZE {
                 coefficients[u * HASH_SIZE + v] =
-                    (0..size).map(|x| basis[v][x] * columns[u][x]).sum();
+                    (0..IMAGE_SIZE).map(|x| basis[v][x] * columns[u][x]).sum();
             }
         }
 
@@ -91,9 +94,9 @@ impl PerceptualHash for PHash {
         let mid = sorted.len() / 2;
         let median = f64::midpoint(sorted[mid - 1], sorted[mid]);
 
-        Some(coefficients.iter().fold(0, |hash, &coefficient| {
+        Ok(Some(coefficients.iter().fold(0, |hash, &coefficient| {
             (hash << 1) | u64::from(coefficient > median)
-        }))
+        })))
     }
 
     fn group(&self, hashes: &[(usize, &u64)]) -> Vec<Vec<usize>> {
@@ -114,8 +117,8 @@ fn shrink_luma(
     if rgb.width() == 0 || rgb.height() == 0 {
         return None;
     }
-    let column_kernels = cached_kernels(&mut scratch.kernels, rgb.width());
-    let row_kernels = cached_kernels(&mut scratch.kernels, rgb.height());
+    let column_kernels = scratch.kernels.get(rgb.width(), || kernels(rgb.width()));
+    let row_kernels = scratch.kernels.get(rgb.height(), || kernels(rgb.height()));
     let first_row = row_kernels[0].start;
     let last_row = row_kernels[IMAGE_SIZE - 1].end();
 
@@ -191,26 +194,13 @@ impl Kernel {
 /// Rounds a fixed-point weighted sum to 8 bits, clamping like Pillow's `clip8`.
 fn round_to_u8(sum: i32) -> u8 {
     let sum = sum + (1 << (PRECISION_BITS - 1));
-    {
-        if sum >= 1 << PRECISION_BITS << 8 {
-            u8::MAX
-        } else if sum <= 0 {
-            0
-        } else {
-            u8::try_from(sum >> PRECISION_BITS).unwrap_or(u8::MAX)
-        }
+    if sum >= 1 << PRECISION_BITS << 8 {
+        u8::MAX
+    } else if sum <= 0 {
+        0
+    } else {
+        u8::try_from(sum >> PRECISION_BITS).unwrap_or(u8::MAX)
     }
-}
-
-/// Most image dimensions whose weights are cached, bounding the cache's memory.
-const MAX_CACHED_KERNELS: usize = 64;
-
-/// [`kernels`] for `input`, computed once per dimension.
-fn cached_kernels(cache: &mut HashMap<u32, Rc<[Kernel]>>, input: u32) -> Rc<[Kernel]> {
-    if cache.len() >= MAX_CACHED_KERNELS && !cache.contains_key(&input) {
-        cache.clear();
-    }
-    Rc::clone(cache.entry(input).or_insert_with(|| kernels(input).into()))
 }
 
 /// Pillow's Lanczos weights for shrinking `input` pixels to 32, following its
@@ -221,11 +211,11 @@ fn cached_kernels(cache: &mut HashMap<u32, Rc<[Kernel]>>, input: u32) -> Rc<[Ker
     reason = "these truncate like Pillow's (int) casts, and the bounds are clamped to the image"
 )]
 fn kernels(input: u32) -> Vec<Kernel> {
-    let scale = f64::from(input) / f64::from(IMAGE_SIDE);
+    let scale = f64::from(input) / f64::from(IMAGE_SIZE_U32);
     let filter_scale = scale.max(1.0);
     let support = LANCZOS_SUPPORT * filter_scale;
     let reciprocal = 1.0 / filter_scale;
-    (0..IMAGE_SIDE)
+    (0..IMAGE_SIZE_U32)
         .map(|output| {
             let center = (f64::from(output) + 0.5) * scale;
             let start = ((center - support + 0.5) as i64).max(0) as u32;

@@ -1,0 +1,41 @@
+site_name: Immaculate
+site_description: Find exact and near-duplicate images in a folder, fast.
+repo_url: https://github.com/Pbatch/Immaculate
+
+theme:
+  name: material
+  features:
+    - content.code.copy
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      toggle: { icon: material/brightness-7, name: Switch to dark mode }
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      toggle: { icon: material/brightness-4, name: Switch to light mode }
+
+nav:
+  - Home: index.md
+  - API reference: api.md
+
+markdown_extensions:
+  - admonition
+  - pymdownx.highlight
+  - pymdownx.superfences
+  # Lets pages include README.md so the two don't drift apart
+  - pymdownx.snippets:
+      check_paths: true
+
+plugins:
+  - search
+  - mkdocstrings:
+      handlers:
+        python:
+          # Read from source and _core.pyi, so the Rust extension needn't be built
+          paths: [src]
+          options:
+            members_order: source
+            show_root_heading: true
+            show_source: false
+            show_signature_annotations: true
+            separate_signature: true

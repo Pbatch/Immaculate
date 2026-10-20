@@ -15,41 +15,61 @@ from immaculate import find_duplicates
 
 result = find_duplicates("photos/")  # searches subfolders too
 result.exact  # sets of images with identical pixels
-result.near  # sets of visually identical images (matching perceptual hashes)
-result.skipped  # images that couldn't be decoded
+result.near  # sets of near-duplicate images, such as resized or flipped copies
+result.skipped  # images that couldn't be decoded or are empty
+
+result = find_duplicates("photos/", method="sscd")  # also catch crops and other heavier edits
 ```
+
+`method` chooses how near duplicates are found:
+
+| Method | Catches | Speed |
+|---|---|---|
+| `"pdq"` (default) | Resized, recompressed, flipped and 90°-rotated copies | Fast |
+| `"phash"` | Resized and recompressed copies | Fast |
+| `"sscd"` | Also crops, rotations by other angles and overlays, using Meta's SSCD copy detection model | About 70x slower than `"pdq"` |
 
 Or from the command line:
 
 ```bash
-python -m immaculate photos/         # readable summary
-python -m immaculate photos/ --json  # {"exact": [[path, ...], ...], "near": [[path, ...], ...], "skipped": [path, ...]}
+python -m immaculate photos/                # readable summary
+python -m immaculate photos/ --json         # {"exact": [[path, ...], ...], "near": [[path, ...], ...], "skipped": [path, ...]}
+python -m immaculate photos/ --method sscd  # pdq (default), phash or sscd
 ```
-
-### Near-duplicate methods
-
-Choose how near duplicates are found with `find_duplicates(..., method=...)` or `--method`:
-
-- `pdq` (default): Meta's 256-bit [PDQ](https://github.com/facebook/ThreatExchange/tree/main/pdq) hashes within 31 bits, in any 90° rotation or flip. Catches resized, recompressed, rotated and flipped copies.
-- `phash`: identical 64-bit perceptual hashes, as in `imagehash`. Catches resized and recompressed copies.
 
 Nothing is moved or deleted. Errors (missing or unreadable folder) go to stderr with exit code 1.
 
 ## Benchmark
 
-On INRIA Copydays (157 photos plus 229 heavily edited copies: printed and scanned, blurred, painted over), against imagededup's CNN method, which found the most duplicates of the open source libraries tested (CleanVision, fastdup, imagededup, pdqhash):
+### UKBench
+
+1,800 photos from [UKBench](https://archive.org/details/ukbench), each with five edited copies (a crop, horizontal and vertical flips, a 25° rotation and a resize to a square), as in [imagededup's benchmark](https://idealo.github.io/imagededup/user_guide/benchmarks/). Recall is out of the 27,000 labelled pairs.
 
 | | Time | Peak memory | Pairs found | Precision | Recall |
 |---|---:|---:|---:|---:|---:|
-| Immaculate 0.1.0 (`pdq`) | **0.79 s** | **341 MiB** | 2 | 100% | 0.6% |
-| imagededup 0.3.3 (`CNN`) | 7.44 s | 1,195 MiB | 29 | 100% | 9.2% |
-
-Immaculate is 9x faster and uses a third of the memory. Copydays' edits are much heavier than resizing or recompression, so hash-based methods find few of them, and the CNN finds more. Recall is out of 314 labelled duplicate pairs. Times are the mean of 3 runs on an AMD Ryzen 7 5800H with all 16 threads. To reproduce, see [benchmark_duplicates.py](benchmark/benchmark_duplicates.py):
+| Immaculate (`pdq`) | **2.67 s** | **56 MiB** | 10,782 | 100% | 39.9% |
+| czkawka | 3.79 s | 64 MiB | 31 | 100% | 0.1% |
+| imagehash (`pHash`) | 4.11 s | 492 MiB | 1,693 | 100% | 6.3% |
+| czkawka (rotations and flips) | 20.74 s | 120 MiB | 4,359 | 100% | 16.1% |
+| CleanVision | 25.57 s | 547 MiB | 1,693 | 100% | 6.3% |
+| fastdup | 28.92 s | 337 MiB | 9,443 | 100% | 35.0% |
+| imagededup (`CNN`) | 64.00 s | 2,257 MiB | 20,620 | 98.8% | 75.5% |
+| Immaculate (`sscd`) | 183.93 s | 188 MiB | 23,196 | 100% | **85.9%** |
 
 ```bash
-uv run benchmark/benchmark_duplicates.py --dataset copydays --repeats 3 --dedup immaculate --dedup imagededup-cnn
+uv run benchmark/benchmark_duplicates.py --dataset ukbench-transformed --dedup immaculate immaculate-sscd imagededup-cnn cleanvision fastdup imagehash czkawka czkawka-dihedral
 ```
 
-## License
+### DISC2021
 
-Proprietary. You may install and use this package, but you may not copy, modify, or redistribute its source code. See [LICENSE](LICENSE).
+50,000 development queries from Meta's [DISC2021](https://arxiv.org/abs/2106.09672) ([data](https://sites.google.com/view/isc2021/dataset)), plus the 10,000 reference photos that 10,000 of them copy with heavy edits (crops, overlays, filters, screenshots and blends). The other 40,000 queries are distractors. Recall is out of the 10,000 labelled pairs.
+
+| | Time | Peak memory | Pairs found | Precision | Recall |
+|---|---:|---:|---:|---:|---:|
+| Immaculate (`pdq`) | **29.13 s** | **149 MiB** | 1,731 | 100% | **17.3%** |
+| imagehash (`pHash`) | 34.38 s | 639 MiB | 316 | 100% | 3.2% |
+| czkawka | 43.94 s | 198 MiB | 89 | 96.6% | 0.9% |
+
+```bash
+uv run benchmark/benchmark_duplicates.py --dataset disc2021 --dedup immaculate czkawka imagehash
+```

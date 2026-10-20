@@ -1,3 +1,4 @@
+import importlib.util
 import json
 from collections.abc import Callable
 from pathlib import Path
@@ -9,8 +10,12 @@ from PIL import Image, ImageDraw, ImageFilter, ImageOps
 import immaculate
 from immaculate import Duplicates, Method, _core, find_duplicates
 from immaculate.__main__ import main as cli_main
+from immaculate._duplicates import SSCD_MODEL, _onnxruntime_library
 
 METHODS: tuple[Method, ...] = get_args(Method.__value__)
+HASH_METHODS = tuple(method for method in METHODS if method != "sscd")
+"""SSCD scores `make_image`'s smooth, textureless images as copies of each other (0.65-0.83 in
+Meta's own PyTorch model too), so tests that need them distinct use only the hashes."""
 
 
 def make_image(seed: int, size: tuple[int, int] = (256, 192)) -> Image.Image:
@@ -124,7 +129,7 @@ def test_exact_duplicates_match_on_pixels_not_file_bytes(tmp_path: Path) -> None
     assert find_duplicates(tmp_path) == Duplicates(exact=[[png, bmp, nested]], near=[], skipped=[])
 
 
-@pytest.mark.parametrize("method", METHODS)
+@pytest.mark.parametrize("method", HASH_METHODS)
 def test_near_duplicates(tmp_path: Path, method: Method) -> None:
     image = make_image(1)
     original = save(image, tmp_path / "a.png")
@@ -160,7 +165,7 @@ def test_near_set_identical_to_exact_set_is_dropped(tmp_path: Path, method: Meth
     assert find_duplicates(tmp_path, method) == Duplicates(exact=[[a, b]], near=[], skipped=[])
 
 
-@pytest.mark.parametrize("method", METHODS)
+@pytest.mark.parametrize("method", HASH_METHODS)
 def test_distinct_images_are_not_duplicates(tmp_path: Path, method: Method) -> None:
     for seed in range(5):
         save(make_image(seed), tmp_path / f"{seed}.png")
@@ -171,6 +176,60 @@ def test_distinct_images_are_not_duplicates(tmp_path: Path, method: Method) -> N
 def test_unknown_method_raises(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="Unknown method"):
         find_duplicates(tmp_path, "ahash")  # ty: ignore[invalid-argument-type]
+
+
+def test_method_type_matches_core() -> None:
+    assert get_args(Method.__value__) == _core.METHODS
+
+
+def test_docstring_matches_core() -> None:
+    doc = " ".join((find_duplicates.__doc__ or "").split())
+    assert f"({', '.join(_core.IMAGE_EXTENSIONS)})" in doc
+    assert f"at most {_core.PDQ_THRESHOLD} bits" in doc
+    assert f"at least {_core.SSCD_THRESHOLD:g}" in doc
+
+
+def test_sscd_matches_crops(tmp_path: Path) -> None:
+    # Unlike make_image's smooth images, fractals have the texture SSCD tells apart: the crop
+    # scores 0.92 and the other region 0.25 or less, against a threshold of 0.75
+    image = Image.effect_mandelbrot((256, 192), (-2.0, -1.2, 0.8, 1.2), 100).convert("RGB")
+    original = save(image, tmp_path / "a.png")
+    cropped = save(image.crop((32, 24, 224, 168)), tmp_path / "b.png")
+    other = Image.effect_mandelbrot((256, 192), (-0.75, 0.05, -0.7, 0.12), 200)
+    save(other.convert("RGB"), tmp_path / "other.png")
+
+    assert find_duplicates(tmp_path, "sscd") == Duplicates(
+        exact=[], near=[[original, cropped]], skipped=[]
+    )
+    assert find_duplicates(tmp_path).near == []
+
+
+def test_sscd_model_is_bundled() -> None:
+    assert SSCD_MODEL.is_file()
+    assert (SSCD_MODEL.parent / "SSCD_LICENSE").is_file()
+
+
+def test_sscd_needs_onnxruntime(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(importlib.util, "find_spec", lambda _: None)
+    with pytest.raises(ModuleNotFoundError, match="pip install onnxruntime"):
+        find_duplicates(tmp_path, "sscd")
+
+
+def test_core_needs_a_model_for_sscd(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="needs a model"):
+        _core.find_duplicates(tmp_path, "sscd", None, _onnxruntime_library())
+
+
+def test_core_model_is_only_for_sscd(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="only used by"):
+        _core.find_duplicates(tmp_path, "pdq", SSCD_MODEL)
+
+
+def test_unloadable_model_raises(tmp_path: Path) -> None:
+    model = tmp_path / "model.onnx"
+    model.write_bytes(b"not a model")
+    with pytest.raises(RuntimeError, match="Couldn't load SSCD model"):
+        _core.find_duplicates(tmp_path, "sscd", model, _onnxruntime_library())
 
 
 def test_skips_undecodable_images(tmp_path: Path) -> None:

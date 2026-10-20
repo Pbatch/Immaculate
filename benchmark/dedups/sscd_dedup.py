@@ -16,24 +16,31 @@ class SSCDDedup(Dedup):
 
     Follows SSCD's README: the small edge resized to 288, ImageNet normalisation, and 0.75 as
     the threshold for `sscd_disc_mixup` (90% precision on DISC). The model is downloaded to
-    PyTorch's hub cache on first use. Like imagededup, every duplicate pair is returned as a
-    set of two, all as near duplicates.
+    PyTorch's hub cache on first use, and runs on `device`, a PyTorch device such as "cuda".
+    Like imagededup, every duplicate pair is returned as a set of two, all as near duplicates.
     """
 
     def __init__(
-        self, threads: int, model: str = "sscd_disc_mixup", threshold: float = 0.75
+        self,
+        threads: int,
+        model: str = "sscd_disc_mixup",
+        threshold: float = 0.75,
+        device: str = "cpu",
     ) -> None:
         super().__init__(threads)
         self.model = model
         self.threshold = threshold
+        self.device = device
         self.name = f"SSCD {model.removeprefix('sscd_')} >={threshold}"
+        if device != "cpu":
+            self.name += f" ({device.upper()})"
 
     def find_duplicates(self, images_dir: Path) -> Duplicates:
         # Imported here because PyTorch is slow to import
         import torch  # noqa: PLC0415
 
         torch.set_num_threads(self.threads)
-        model = torch.jit.load(self.model_path(), map_location="cpu").eval()
+        model = torch.jit.load(self.model_path(), map_location=self.device).eval()
         paths = sorted(
             path
             for path in images_dir.rglob("*")
@@ -50,7 +57,7 @@ class SSCDDedup(Dedup):
                 if tensor is None:
                     continue
                 embedded.append(path)
-                embeddings.append(model(tensor.unsqueeze(0))[0].numpy())
+                embeddings.append(model(tensor.unsqueeze(0).to(self.device))[0].cpu().numpy())
         if skipped := len(paths) - len(embedded):
             logger.warning(f"SSCD skipped {skipped} undecodable images")
         if not embeddings:

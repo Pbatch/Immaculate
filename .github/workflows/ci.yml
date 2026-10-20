@@ -5,6 +5,12 @@ on:
     branches: [main]
   pull_request:
 
+env:
+  # Cargo builds and links the Rust tests against the project's Python, not the system one
+  PYO3_PYTHON: ${{ github.workspace }}/.venv/bin/python
+  # uv's own Python builds ship the shared libpython that linking the Rust tests needs
+  UV_PYTHON_PREFERENCE: only-managed
+
 jobs:
   lint:
     runs-on: ubuntu-latest
@@ -19,6 +25,8 @@ jobs:
       - run: uv run --locked ruff check .
       - run: uv run --locked ruff format --check .
       - run: uv run --locked ty check
+      - run: cargo fmt --check
+      - run: cargo clippy --all-targets --locked -- -D warnings
 
   test:
     runs-on: ubuntu-latest
@@ -30,3 +38,32 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: uv sync --locked
       - run: uv run --locked pytest
+      - run: cargo test --locked
+
+  docs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      # mkdocstrings reads the source statically, so the Rust extension isn't built
+      - run: uv run --locked --only-group docs mkdocs build --strict
+      - uses: actions/upload-pages-artifact@v4
+        if: github.event_name == 'push'
+        with:
+          path: site
+
+  deploy-docs:
+    if: github.event_name == 'push'
+    needs: docs
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

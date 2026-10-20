@@ -31,6 +31,11 @@ DEDUPS: dict[str, DedupSpec] = {
     "cleanvision": DedupSpec(
         "cleanvision", "dedups.cleanvision_dedup", "CleanVisionDedup", ("cleanvision",)
     ),
+    # czkawka is a binary rather than a Python package, so its version is in its name
+    "czkawka": DedupSpec("czkawka", "dedups.czkawka_dedup", "CzkawkaDedup", ()),
+    "czkawka-dihedral": DedupSpec(
+        "czkawka", "dedups.czkawka_dedup", "CzkawkaDedup", (), {"dihedral": True}
+    ),
     "fastdup": DedupSpec("fastdup", "dedups.fastdup_dedup", "FastdupDedup", ("fastdup",)),
     "imagededup-phash": DedupSpec(
         "imagededup",
@@ -46,6 +51,7 @@ DEDUPS: dict[str, DedupSpec] = {
         ("imagededup", "torch"),
         {"method": "cnn"},
     ),
+    "imagehash": DedupSpec("imagehash", "dedups.imagehash_dedup", "ImagehashDedup", ("imagehash",)),
     "immaculate": DedupSpec(
         "immaculate", "dedups.immaculate_dedup", "ImmaculateDedup", ("immaculate",)
     ),
@@ -56,11 +62,23 @@ DEDUPS: dict[str, DedupSpec] = {
         ("immaculate",),
         {"method": "phash"},
     ),
+    "immaculate-sscd": DedupSpec(
+        "immaculate",
+        "dedups.immaculate_dedup",
+        "ImmaculateDedup",
+        ("immaculate",),
+        {"method": "sscd"},
+    ),
     "pdq": DedupSpec("pdq", "dedups.pdq_dedup", "PDQDedup", ("pdqhash",)),
     "pdq-dihedral": DedupSpec(
         "pdq", "dedups.pdq_dedup", "PDQDedup", ("pdqhash",), {"dihedral": True}
     ),
     "sscd-disc-mixup": DedupSpec(
-        "sscd", "dedups.sscd_dedup", "SSCDDedup", ("torch",), {"model": "sscd_disc_mixup"}
+        "sscd",
+        "dedups.sscd_dedup",
+        "SSCDDedup",
+        ("torch",),
+        # On the GPU for now, to save time; the other libraries all run on the CPU
+        {"model": "sscd_disc_mixup", "device": "cuda"},
     ),
 }

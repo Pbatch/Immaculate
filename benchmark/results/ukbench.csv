@@ -1,0 +1,4 @@
+dedup,runs,seconds,seconds_min,seconds_max,peak_memory_mib,memory_method,exact_sets,near_sets,pairs,labelled_pairs,correct_pairs,precision,recall
+imagededup CNN,1,58.019,58.019,58.019,2233.3,cgroup,,6645,6645,15300,6450,0.9707,0.4216
+SSCD disc_mixup >=0.75 (CUDA),1,67.892,67.892,67.892,1199.6,cgroup,,2576,2576,15300,2571,0.9981,0.1680
+Immaculate,1,2.657,2.657,2.657,46.6,cgroup,0,2,2,15300,2,1.0000,0.0001
