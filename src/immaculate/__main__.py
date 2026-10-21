@@ -8,6 +8,7 @@ immaculate photos/ --method sscd
 """
 
 import argparse
+import errno
 import json
 import os
 import sys
@@ -85,7 +86,9 @@ def main(
     try:
         sys.stdout.write((format_json(duplicates) if as_json else format_text(duplicates)) + "\n")
         sys.stdout.flush()
-    except BrokenPipeError:
+    except OSError as error:
+        if not is_closed_pipe(error):
+            raise
         # The reader closed the pipe early, as `head` does. Point stdout at devnull so Python
         # doesn't fail again flushing it at exit, and exit as if killed by SIGPIPE, like
         # other command-line tools.
@@ -93,6 +96,14 @@ def main(
         os.dup2(devnull, sys.stdout.fileno())
         return 141
     return 0
+
+
+def is_closed_pipe(error: OSError) -> bool:
+    """Whether `error` came from writing to a pipe whose reader has closed it, which Windows
+    reports as EINVAL rather than EPIPE."""
+    return isinstance(error, BrokenPipeError) or (
+        sys.platform == "win32" and error.errno == errno.EINVAL
+    )
 
 
 def cli(argv: list[str] | None = None) -> None:
