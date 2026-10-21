@@ -1,2 +1,11 @@
 dedup,runs,seconds,seconds_min,seconds_max,peak_memory_mib,memory_method,exact_sets,near_sets,pairs,labelled_pairs,correct_pairs,precision,recall
-Immaculate SSCD distilled,1,42.721,42.721,42.721,148.5,cgroup,0,1800,19886,27000,19880,0.9997,0.7363
+Immaculate,1,2.775,2.775,2.775,56.2,cgroup-anon,0,1800,10782,27000,10782,1.0000,0.3993
+Immaculate pHash,1,2.691,2.691,2.691,50.5,cgroup-anon,0,1686,1686,27000,1686,1.0000,0.0624
+Immaculate SSCD,1,186.516,186.516,186.516,188.5,cgroup-anon,0,1800,23196,27000,23196,1.0000,0.8591
+Immaculate SSCD distilled,1,44.076,44.076,44.076,143.9,cgroup-anon,0,1800,19886,27000,19880,0.9997,0.7363
+imagededup CNN,1,64.995,64.995,64.995,1413.5,cgroup-anon,,20620,20620,27000,20381,0.9884,0.7549
+CleanVision,1,26.034,26.034,26.034,519.6,cgroup-anon,0,1693,1693,27000,1693,1.0000,0.0627
+fastdup,1,32.255,32.255,32.255,279.1,cgroup-anon,,1801,9443,27000,9443,1.0000,0.3497
+imagehash pHash,1,4.062,4.062,4.062,469.5,cgroup-anon,,1693,1693,27000,1693,1.0000,0.0627
+czkawka 12.0.2,1,3.715,3.715,3.715,61.0,cgroup-anon,,31,31,27000,31,1.0000,0.0011
+czkawka 12.0.2 dihedral,1,23.490,23.490,23.490,116.3,cgroup-anon,,1807,4359,27000,4359,1.0000,0.1614
