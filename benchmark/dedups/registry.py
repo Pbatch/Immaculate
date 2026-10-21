@@ -69,6 +69,20 @@ DEDUPS: dict[str, DedupSpec] = {
         ("immaculate",),
         {"method": "sscd"},
     ),
+    "immaculate-sscd-distilled": DedupSpec(
+        "immaculate",
+        "dedups.immaculate_dedup",
+        "ImmaculateDedup",
+        ("immaculate",),
+        {"method": "sscd_distilled"},
+    ),
+    "immaculate-sscd-student": DedupSpec(
+        "immaculate",
+        "dedups.immaculate_dedup",
+        "ImmaculateDedup",
+        ("immaculate",),
+        {"method": "sscd", "sscd_model": "dev/models/conv-s.onnx"},
+    ),
     "pdq": DedupSpec("pdq", "dedups.pdq_dedup", "PDQDedup", ("pdqhash",)),
     "pdq-dihedral": DedupSpec(
         "pdq", "dedups.pdq_dedup", "PDQDedup", ("pdqhash",), {"dihedral": True}
