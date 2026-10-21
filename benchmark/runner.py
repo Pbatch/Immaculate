@@ -1,8 +1,8 @@
 """Run one deduplicator on one folder and save what it found, with timing and memory, as JSON.
 
 benchmark_duplicates.py starts this in the deduplicator's own environment, so it only imports
-that one library. On Linux with systemd it also runs in its own cgroup, whose peak memory covers
-every process the library starts.
+that one library. On Linux with systemd it also runs in its own cgroup, whose anonymous memory
+covers every process the library starts.
 
     python benchmark/runner.py --dedup immaculate --images DIR --out result.json --threads 16
 """
@@ -14,27 +14,67 @@ import json
 import platform
 import resource
 import sys
+import threading
 import time
 import traceback
 from pathlib import Path
-from typing import Any
+from typing import Any, Self
 
 from dedups.base_dedup import DuplicateSets
 from dedups.registry import DEDUPS
 
 CGROUP_ROOT = Path("/sys/fs/cgroup")
+ANON_INTERVAL = 0.01
+"""Seconds between samples of the cgroup's anonymous memory."""
 
 
-def cgroup_peak() -> int | None:
-    """Peak memory of this process's cgroup v2, including every process in it, in bytes."""
-    try:
+def cgroup_dir() -> Path | None:
+    """This process's cgroup v2 directory, or `None` if it isn't in one."""
+    with contextlib.suppress(OSError):
         for line in Path("/proc/self/cgroup").read_text().splitlines():
             if line.startswith("0::"):
-                path = CGROUP_ROOT / line.removeprefix("0::").lstrip("/") / "memory.peak"
-                return int(path.read_text())
-    except (OSError, ValueError):
-        pass
+                return CGROUP_ROOT / line.removeprefix("0::").lstrip("/")
     return None
+
+
+def cgroup_anon(cgroup: Path) -> int:
+    """Anonymous memory of every process in `cgroup` now, in bytes."""
+    for line in (cgroup / "memory.stat").read_text().splitlines():
+        name, value = line.split()
+        if name == "anon":
+            return int(value)
+    msg = f"no anon in {cgroup / 'memory.stat'}"
+    raise ValueError(msg)
+
+
+class AnonPeak:
+    """Samples a cgroup's anonymous memory on a thread, keeping the largest.
+
+    Unlike its memory.peak, this leaves out page cache, which the kernel drops under pressure
+    and charges to the cgroup when an image is read again after being evicted, so it grows
+    with how long a run takes rather than with what the library holds. A spike shorter than
+    `ANON_INTERVAL` can be missed. Peak RSS isn't used as a floor, as it counts mapped library
+    files, which are page cache too.
+    """
+
+    def __init__(self, cgroup: Path) -> None:
+        self.cgroup = cgroup
+        self.peak = cgroup_anon(cgroup)
+        self.stop = threading.Event()
+        self.thread = threading.Thread(target=self.watch, daemon=True)
+
+    def watch(self) -> None:
+        while not self.stop.wait(ANON_INTERVAL):
+            self.peak = max(self.peak, cgroup_anon(self.cgroup))
+
+    def __enter__(self) -> Self:
+        self.thread.start()
+        return self
+
+    def __exit__(self, *_: object) -> None:
+        self.stop.set()
+        self.thread.join()
+        self.peak = max(self.peak, cgroup_anon(self.cgroup))
 
 
 def maxrss_peak() -> int:
@@ -92,14 +132,18 @@ def run(key: str, images_dir: Path, threads: int) -> dict[str, Any]:
 
 
 def main(dedup: str, images_dir: Path, out: Path, *, threads: int, cgroup: bool) -> None:
-    record = run(dedup, images_dir.resolve(), threads)
-    # Read before writing the JSON, so serializing the results isn't counted
-    peak = cgroup_peak() if cgroup else None
-    record |= (
-        {"peak_memory_bytes": peak, "memory_method": "cgroup"}
-        if peak is not None
-        else {"peak_memory_bytes": maxrss_peak(), "memory_method": "maxrss"}
-    )
+    group = cgroup_dir() if cgroup else None
+    if group is None:
+        record = run(dedup, images_dir.resolve(), threads)
+        record |= {"peak_memory_bytes": maxrss_peak(), "memory_method": "maxrss"}
+    else:
+        # Stopped before writing the JSON, so serializing the results isn't counted
+        with AnonPeak(group) as anon:
+            record = run(dedup, images_dir.resolve(), threads)
+        record |= {
+            "peak_memory_bytes": anon.peak,
+            "memory_method": "cgroup-anon",
+        }
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(record))
 
