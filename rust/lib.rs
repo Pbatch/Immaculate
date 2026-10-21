@@ -22,6 +22,10 @@ use std::fs;
 use std::hash::Hash;
 use std::io;
 use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::thread;
+use std::time::Duration;
 
 use image::{DynamicImage, ImageReader, RgbImage};
 use pyo3::exceptions::{PyNotADirectoryError, PyOSError, PyRuntimeError, PyValueError};
@@ -39,7 +43,9 @@ use crate::sscd::Sscd;
 /// File extensions treated as images, compared case-insensitively.
 const IMAGE_EXTENSIONS: &[&str] = &["bmp", "gif", "jpeg", "jpg", "png", "tif", "tiff", "webp"];
 /// The near-duplicate methods' names, as `find_duplicates` takes them.
-const METHODS: &[&str] = &["pdq", "phash", "sscd"];
+const METHODS: &[&str] = &["pdq", "phash", "sscd", "sscd_distilled"];
+/// How often a search reports progress and checks for Ctrl-C.
+const PROGRESS_INTERVAL: Duration = Duration::from_millis(100);
 
 /// How near duplicates are found, ready to run.
 enum NearMethod {
@@ -53,6 +59,8 @@ enum DedupError {
     NotADirectory(PathBuf),
     /// The near-duplicate method failed on this image in a way that would fail for any image.
     Hash(PathBuf, String),
+    /// The search was stopped early through [`Progress::cancelled`].
+    Cancelled,
 }
 
 impl From<DedupError> for PyErr {
@@ -75,6 +83,7 @@ impl From<DedupError> for PyErr {
                 "Couldn't find near duplicates of {}: {err}",
                 path.to_string_lossy()
             )),
+            DedupError::Cancelled => PyRuntimeError::new_err("The search was cancelled"),
         }
     }
 }
@@ -101,8 +110,8 @@ fn is_image(path: &Path) -> bool {
 
 /// Recursively lists image files under `input_dir`, sorted by path.
 ///
-/// Symlinks are not followed.
-fn find_images(input_dir: &Path) -> Result<Vec<PathBuf>, DedupError> {
+/// Symlinks are not followed. Stops early if `cancelled` is set.
+fn find_images(input_dir: &Path, cancelled: &AtomicBool) -> Result<Vec<PathBuf>, DedupError> {
     let metadata =
         fs::metadata(input_dir).map_err(|err| DedupError::Io(input_dir.to_owned(), err))?;
     if !metadata.is_dir() {
@@ -111,6 +120,9 @@ fn find_images(input_dir: &Path) -> Result<Vec<PathBuf>, DedupError> {
 
     let mut images = Vec::new();
     for entry in WalkDir::new(input_dir).sort_by_file_name() {
+        if cancelled.load(Ordering::Relaxed) {
+            return Err(DedupError::Cancelled);
+        }
         let entry = entry?;
         if entry.file_type().is_file() && is_image(entry.path()) {
             images.push(entry.into_path());
@@ -160,6 +172,34 @@ struct ImageHashes<H> {
     perceptual: H,
 }
 
+/// Hashes the image at `path`, or returns `None` if it can't be decoded or is empty.
+fn hash_image<P: PerceptualHash>(
+    path: &Path,
+    method: &P,
+) -> Result<Option<ImageHashes<P::Hash>>, DedupError> {
+    let Some(image) = load_image(path) else {
+        return Ok(None);
+    };
+    let perceptual = method
+        .hash(&image)
+        .map_err(|err| DedupError::Hash(path.to_owned(), err.to_string()))?;
+    Ok(perceptual.map(|perceptual| ImageHashes {
+        pixels: pixel_hash(&image),
+        perceptual,
+    }))
+}
+
+/// How far a search has got, shared between the threads doing it and the one reporting it.
+#[derive(Default)]
+struct Progress {
+    /// Images found, set once the folder has been listed.
+    total: OnceLock<usize>,
+    /// Images hashed or skipped so far.
+    done: AtomicUsize,
+    /// Set to stop the search early, which then fails with [`DedupError::Cancelled`].
+    cancelled: AtomicBool,
+}
+
 /// Groups indices that share a key into sets of two or more.
 ///
 /// Groups are ordered by their first index, and indices within a group are ascending.
@@ -194,21 +234,20 @@ struct Duplicates {
 fn find_duplicate_images<P: PerceptualHash>(
     input_dir: &Path,
     method: &P,
+    progress: &Progress,
 ) -> Result<Duplicates, DedupError> {
-    let images = find_images(input_dir)?;
+    let images = find_images(input_dir, &progress.cancelled)?;
+    // Only this function sets it, once
+    let _ = progress.total.set(images.len());
     let hashes: Vec<Option<ImageHashes<P::Hash>>> = images
         .par_iter()
         .map(|path| {
-            let Some(image) = load_image(path) else {
-                return Ok(None);
-            };
-            let perceptual = method
-                .hash(&image)
-                .map_err(|err| DedupError::Hash(path.clone(), err.to_string()))?;
-            Ok(perceptual.map(|perceptual| ImageHashes {
-                pixels: pixel_hash(&image),
-                perceptual,
-            }))
+            if progress.cancelled.load(Ordering::Relaxed) {
+                return Err(DedupError::Cancelled);
+            }
+            let hashes = hash_image(path, method);
+            progress.done.fetch_add(1, Ordering::Relaxed);
+            hashes
         })
         .collect::<Result<_, DedupError>>()?;
 
@@ -250,13 +289,71 @@ fn find_duplicate_images<P: PerceptualHash>(
     })
 }
 
+/// Runs `search` on another thread, so that this one, attached to Python, can call
+/// `callback(done, total)` every [`PROGRESS_INTERVAL`] while images are hashed, and once more
+/// when the search succeeds. Only calls it when `done` has changed.
+///
+/// If the callback raises, or Ctrl-C is pressed, the search is cancelled and that exception
+/// is raised.
+fn run_with_progress<T: Send>(
+    py: Python<'_>,
+    callback: Option<&Bound<'_, PyAny>>,
+    search: impl FnOnce(&Progress) -> Result<T, DedupError> + Send,
+) -> PyResult<T> {
+    let progress = Progress::default();
+    let finished = AtomicBool::new(false);
+    let caller = thread::current();
+    let mut reported = None;
+    let mut report = || -> PyResult<()> {
+        let (Some(callback), Some(&total)) = (callback, progress.total.get()) else {
+            return Ok(());
+        };
+        let done = progress.done.load(Ordering::Relaxed);
+        if reported != Some(done) {
+            callback.call1((done, total))?;
+            reported = Some(done);
+        }
+        Ok(())
+    };
+
+    thread::scope(|scope| {
+        let worker = scope.spawn(|| {
+            let result = search(&progress);
+            finished.store(true, Ordering::Release);
+            caller.unpark();
+            result
+        });
+        let mut error = None;
+        while !finished.load(Ordering::Acquire) {
+            py.detach(|| thread::park_timeout(PROGRESS_INTERVAL));
+            if error.is_none()
+                && let Err(err) = py.check_signals().and_then(|()| report())
+            {
+                progress.cancelled.store(true, Ordering::Relaxed);
+                error = Some(err);
+            }
+        }
+        let result = worker
+            .join()
+            .unwrap_or_else(|panic| std::panic::resume_unwind(panic));
+        if let Some(err) = error {
+            return Err(err);
+        }
+        let value = result?;
+        report()?;
+        Ok(value)
+    })
+}
+
 /// Find exact and near-duplicate images in a folder, finding near duplicates with `method`
-/// ("pdq", "phash" or "sscd"). "sscd" needs `model`, SSCD as an ONNX model, and
-/// `onnxruntime`, the path to ONNX Runtime's `onnxruntime` library to run it with.
+/// (`"pdq"`, `"phash"`, `"sscd"` or `"sscd_distilled"`). `"sscd"` and `"sscd_distilled"` need
+/// `model`, an SSCD-style ONNX model (SSCD itself, or the `MobileNetV4` student distilled from
+/// it), and `onnxruntime`, the path to ONNX Runtime's `onnxruntime` library to run it with.
+/// `progress`, if given, is called as `progress(done, total)`; see `run_with_progress`.
 ///
 /// Returns `(exact, near, skipped)`. See `immaculate.find_duplicates`.
 #[pyfunction]
-#[pyo3(signature = (input_dir, method = "pdq", model = None, onnxruntime = None))]
+#[pyo3(signature = (input_dir, method = "pdq", model = None, onnxruntime = None, progress = None))]
 #[expect(
     clippy::needless_pass_by_value,
     reason = "pyo3 extracts arguments as owned values"
@@ -267,11 +364,12 @@ fn find_duplicates(
     method: &str,
     model: Option<PathBuf>,
     onnxruntime: Option<PathBuf>,
+    progress: Option<Bound<'_, PyAny>>,
 ) -> PyResult<(PathSets, PathSets, Vec<PathBuf>)> {
     let method = match (method, model, onnxruntime) {
         ("phash", None, None) => NearMethod::PHash,
         ("pdq", None, None) => NearMethod::Pdq,
-        ("sscd", Some(model), Some(onnxruntime)) => NearMethod::Sscd(
+        ("sscd" | "sscd_distilled", Some(model), Some(onnxruntime)) => NearMethod::Sscd(
             py.detach(|| Sscd::new(&onnxruntime, &model, rayon::current_num_threads()))
                 .map_err(|err| {
                     PyRuntimeError::new_err(format!(
@@ -280,17 +378,19 @@ fn find_duplicates(
                     ))
                 })?,
         ),
-        ("sscd", None, _) => {
-            return Err(PyValueError::new_err("method \"sscd\" needs a model path"));
+        (name @ ("sscd" | "sscd_distilled"), None, _) => {
+            return Err(PyValueError::new_err(format!(
+                "method {name:?} needs a model path"
+            )));
         }
-        ("sscd", _, None) => {
-            return Err(PyValueError::new_err(
-                "method \"sscd\" needs ONNX Runtime's library path",
-            ));
+        (name @ ("sscd" | "sscd_distilled"), _, None) => {
+            return Err(PyValueError::new_err(format!(
+                "method {name:?} needs ONNX Runtime's library path"
+            )));
         }
         ("phash" | "pdq", _, _) => {
             return Err(PyValueError::new_err(
-                "model and onnxruntime are only used by method \"sscd\"",
+                "model and onnxruntime are only used by methods \"sscd\" and \"sscd_distilled\"",
             ));
         }
         (name, _, _) => {
@@ -299,10 +399,10 @@ fn find_duplicates(
             )));
         }
     };
-    let duplicates = py.detach(|| match &method {
-        NearMethod::PHash => find_duplicate_images(&input_dir, &PHash),
-        NearMethod::Pdq => find_duplicate_images(&input_dir, &Pdq::default()),
-        NearMethod::Sscd(sscd) => find_duplicate_images(&input_dir, sscd),
+    let duplicates = run_with_progress(py, progress.as_ref(), |progress| match &method {
+        NearMethod::PHash => find_duplicate_images(&input_dir, &PHash, progress),
+        NearMethod::Pdq => find_duplicate_images(&input_dir, &Pdq::default(), progress),
+        NearMethod::Sscd(sscd) => find_duplicate_images(&input_dir, sscd, progress),
     })?;
     Ok((duplicates.exact, duplicates.near, duplicates.skipped))
 }
