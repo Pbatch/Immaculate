@@ -44,7 +44,8 @@ pub struct Sscd {
 
 impl Sscd {
     /// Loads ONNX Runtime from `library` (its `onnxruntime` shared library), then the model
-    /// from `model`, an ONNX model made by `dev/quantize_sscd_onnx.py`. It takes 8-bit RGB
+    /// from `model`, an ONNX model made by `dev/quantize_sscd_onnx.py` (SSCD) or
+    /// `dev/export_mobilenetv4_onnx.py` (the distilled `MobileNetV4` student). It takes 8-bit RGB
     /// pixels already resized for SSCD, as a (1, height, width, 3) tensor, and normalises them
     /// itself.
     ///
