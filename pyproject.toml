@@ -1,6 +1,6 @@
 [project]
 name = "Immaculate"
-version = "0.1.0"
+version = "0.2.0"
 description = "Find exact and near-duplicate images in a folder, fast."
 readme = "README.md"
 authors = [{ name = "Peter Batchelor" }]
