@@ -1,5 +1,9 @@
+import importlib.metadata
 import importlib.util
 import json
+import os
+import subprocess
+import sys
 from collections.abc import Callable
 from pathlib import Path
 from typing import get_args
@@ -9,13 +13,15 @@ from PIL import Image, ImageDraw, ImageFilter, ImageOps
 
 import immaculate
 from immaculate import Duplicates, Method, _core, find_duplicates
+from immaculate.__main__ import cli
 from immaculate.__main__ import main as cli_main
-from immaculate._duplicates import SSCD_MODEL, _onnxruntime_library
+from immaculate._duplicates import SSCD_DISTILLED_MODEL, SSCD_MODEL, _onnxruntime_library
 
 METHODS: tuple[Method, ...] = get_args(Method.__value__)
-HASH_METHODS = tuple(method for method in METHODS if method != "sscd")
-"""SSCD scores `make_image`'s smooth, textureless images as copies of each other (0.65-0.83 in
-Meta's own PyTorch model too), so tests that need them distinct use only the hashes."""
+HASH_METHODS = tuple(method for method in METHODS if method not in {"sscd", "sscd_distilled"})
+"""SSCD (and its distilled student) scores `make_image`'s smooth, textureless images as copies
+of each other (0.65-0.83 in Meta's own PyTorch model too), so tests that need them distinct use
+only the hashes."""
 
 
 def make_image(seed: int, size: tuple[int, int] = (256, 192)) -> Image.Image:
@@ -115,7 +121,7 @@ def test_hashes_are_unchanged(tmp_path: Path, name: str, phash: int, pdq: str) -
 
 
 def test_version() -> None:
-    assert immaculate.__version__ == "0.1.0"
+    assert immaculate.__version__ == "0.2.0"
 
 
 def test_exact_duplicates_match_on_pixels_not_file_bytes(tmp_path: Path) -> None:
@@ -198,21 +204,26 @@ def test_sscd_matches_crops(tmp_path: Path) -> None:
     other = Image.effect_mandelbrot((256, 192), (-0.75, 0.05, -0.7, 0.12), 200)
     save(other.convert("RGB"), tmp_path / "other.png")
 
-    assert find_duplicates(tmp_path, "sscd") == Duplicates(
-        exact=[], near=[[original, cropped]], skipped=[]
-    )
+    for method in ("sscd", "sscd_distilled"):
+        assert find_duplicates(tmp_path, method) == Duplicates(
+            exact=[], near=[[original, cropped]], skipped=[]
+        )
     assert find_duplicates(tmp_path).near == []
 
 
-def test_sscd_model_is_bundled() -> None:
+def test_sscd_models_are_bundled() -> None:
     assert SSCD_MODEL.is_file()
+    assert SSCD_DISTILLED_MODEL.is_file()
     assert (SSCD_MODEL.parent / "SSCD_LICENSE").is_file()
 
 
-def test_sscd_needs_onnxruntime(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+@pytest.mark.parametrize("method", ["sscd", "sscd_distilled"])
+def test_sscd_needs_onnxruntime(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, method: Method
+) -> None:
     monkeypatch.setattr(importlib.util, "find_spec", lambda _: None)
     with pytest.raises(ModuleNotFoundError, match="pip install onnxruntime"):
-        find_duplicates(tmp_path, "sscd")
+        find_duplicates(tmp_path, method)
 
 
 def test_core_needs_a_model_for_sscd(tmp_path: Path) -> None:
@@ -262,6 +273,37 @@ def test_accepts_str_path(tmp_path: Path) -> None:
     b = save(image, tmp_path / "b.png")
 
     assert find_duplicates(str(tmp_path)).exact == [[a, b]]
+
+
+@pytest.mark.parametrize("method", METHODS)
+def test_progress_ends_with_every_image_done(tmp_path: Path, method: Method) -> None:
+    for seed in range(3):
+        save(make_image(seed), tmp_path / f"{seed}.png")
+    (tmp_path / "corrupt.png").write_bytes(b"not an image")
+    images = 4
+    calls: list[tuple[int, int]] = []
+
+    find_duplicates(tmp_path, method, progress=lambda done, total: calls.append((done, total)))
+    assert calls[-1] == (images, images)
+    assert all(total == images for _, total in calls)
+    assert [done for done, _ in calls] == sorted({done for done, _ in calls})
+
+
+def test_progress_on_empty_folder(tmp_path: Path) -> None:
+    calls: list[tuple[int, int]] = []
+    find_duplicates(tmp_path, progress=lambda done, total: calls.append((done, total)))
+    assert calls == [(0, 0)]
+
+
+def test_progress_exception_is_raised(tmp_path: Path) -> None:
+    save(make_image(1), tmp_path / "a.png")
+
+    def fail(_done: int, _total: int) -> None:
+        msg = "stop"
+        raise ValueError(msg)
+
+    with pytest.raises(ValueError, match="stop"):
+        find_duplicates(tmp_path, progress=fail)
 
 
 def test_empty_folder(tmp_path: Path) -> None:
@@ -319,6 +361,65 @@ def test_cli_method(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     assert json.loads(capsys.readouterr().out)["near"] == [[str(a), str(b)]]
     assert cli_main(tmp_path, as_json=True, method="phash") == 0
     assert json.loads(capsys.readouterr().out)["near"] == []
+
+
+def test_cli_progress(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    save(make_image(1), tmp_path / "a.png")
+    save(make_image(2), tmp_path / "b.png")
+
+    assert cli_main(tmp_path, as_json=True, show_progress=True) == 0
+    captured = capsys.readouterr()
+    assert json.loads(captured.out)["exact"] == []
+    assert captured.err.endswith(f"\r[{'#' * 30}] 2/2 images\n")
+
+
+def test_cli_missing_folder_with_progress(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    assert cli_main(tmp_path / "missing", as_json=False, show_progress=True) == 1
+    assert capsys.readouterr().err.startswith("immaculate: error:")
+
+
+def test_cli_parses_arguments(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    image = make_image(1)
+    a = save(image, tmp_path / "a.png")
+    b = save(ImageOps.mirror(image), tmp_path / "b.png")
+
+    with pytest.raises(SystemExit) as exited:
+        cli([str(tmp_path), "--json", "--method", "phash"])
+    assert exited.value.code == 0
+    assert json.loads(capsys.readouterr().out)["near"] == []
+    with pytest.raises(SystemExit) as exited:
+        cli([str(tmp_path), "--json"])
+    assert exited.value.code == 0
+    assert json.loads(capsys.readouterr().out)["near"] == [[str(a), str(b)]]
+
+
+def test_cli_rejects_unknown_method(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    with pytest.raises(SystemExit) as exited:
+        cli([str(tmp_path), "--method", "ahash"])
+    assert exited.value.code == 2  # noqa: PLR2004 - argparse's usage error code
+    assert "usage: immaculate" in capsys.readouterr().err
+
+
+def test_command_is_installed() -> None:
+    (command,) = importlib.metadata.entry_points(group="console_scripts", name="immaculate")
+    assert command.load() is cli
+
+
+def test_cli_closed_pipe(tmp_path: Path) -> None:
+    image = make_image(1)
+    save(image, tmp_path / "a.png")
+    save(image, tmp_path / "b.png")
+    read, write = os.pipe()
+    os.close(read)
+
+    with os.fdopen(write, "wb") as stdout:
+        command = [sys.executable, "-m", "immaculate", str(tmp_path), "--json"]
+        # The command is built from this interpreter and a temporary folder
+        result = subprocess.run(command, stdout=stdout, stderr=subprocess.PIPE, check=False)  # noqa: S603
+    assert result.returncode == 141  # noqa: PLR2004 - 128 + SIGPIPE, like other tools
+    assert result.stderr == b""
 
 
 def test_cli_missing_folder(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:

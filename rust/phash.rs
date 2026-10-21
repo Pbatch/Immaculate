@@ -123,14 +123,16 @@ fn shrink_luma(
     let last_row = row_kernels[IMAGE_SIZE - 1].end();
 
     scratch.narrow_rows.clear();
-    for pixels in rgb.rows().skip(first_row).take(last_row - first_row) {
-        scratch.luma.clear();
-        scratch.luma.extend(pixels.map(|pixel| {
-            let [r, g, b] = pixel.0.map(u32::from);
-            // Pillow's convert("L") (ITU-R 601-2 luma)
-            let luma = (r * 19595 + g * 38470 + b * 7471 + 0x8000) >> 16;
-            i16::try_from(luma).unwrap_or(i16::MAX)
-        }));
+    let width = rgb.width() as usize;
+    scratch.luma.resize(width, 0);
+    // Raw bytes rather than `rgb.rows()`, whose per-pixel iterator doesn't vectorize
+    for pixels in rgb
+        .as_raw()
+        .chunks_exact(3 * width)
+        .skip(first_row)
+        .take(last_row - first_row)
+    {
+        luma_row(pixels, &mut scratch.luma);
         let mut narrow = [0; IMAGE_SIZE];
         for (value, kernel) in narrow.iter_mut().zip(column_kernels.iter()) {
             *value = kernel.apply_split(&scratch.luma[kernel.start..kernel.end()]);
@@ -146,6 +148,15 @@ fn shrink_luma(
         }
     }
     Some(small)
+}
+
+/// Converts one row of RGB bytes to grayscale as Pillow's `convert("L")` does (ITU-R 601-2
+/// luma), filling `luma`.
+fn luma_row(pixels: &[u8], luma: &mut [i16]) {
+    for (value, pixel) in luma.iter_mut().zip(pixels.as_chunks::<3>().0) {
+        let [r, g, b] = pixel.map(u32::from);
+        *value = ((r * 19595 + g * 38470 + b * 7471 + 0x8000) >> 16) as i16;
+    }
 }
 
 /// Pillow's fixed-point weights for one output pixel: `weights[k]` applies to input

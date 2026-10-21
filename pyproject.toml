@@ -1,6 +1,6 @@
 [project]
 name = "Immaculate"
-version = "0.1.0"
+version = "0.2.0"
 description = "Find exact and near-duplicate images in a folder, fast."
 readme = "README.md"
 authors = [{ name = "Peter Batchelor" }]
@@ -14,6 +14,9 @@ dependencies = [
     # Runs the "sscd" method's model; the Rust bindings need 1.17 or later
     "onnxruntime>=1.17",
 ]
+
+[project.scripts]
+immaculate = "immaculate.__main__:cli"
 
 [project.urls]
 Documentation = "https://pbatch.github.io/Immaculate/"

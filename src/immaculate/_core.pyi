@@ -1,3 +1,4 @@
+from collections.abc import Callable
 from os import PathLike
 from pathlib import Path
 
@@ -13,6 +14,7 @@ def find_duplicates(
     method: Method = "pdq",
     model: str | PathLike[str] | None = None,
     onnxruntime: str | PathLike[str] | None = None,
+    progress: Callable[[int, int], object] | None = None,
 ) -> tuple[list[list[Path]], list[list[Path]], list[Path]]: ...
 def perceptual_hash(path: str | PathLike[str]) -> int | None: ...
 def pdq_hash(path: str | PathLike[str]) -> str | None: ...
