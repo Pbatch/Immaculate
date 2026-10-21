@@ -7,7 +7,8 @@ transformed, by default; choose others with --dedup and --dataset.
 
 Each library runs in isolation: in its own uv environment under benchmark/envs, in a fresh
 process started by runner.py, and on Linux with systemd in its own cgroup, so peak memory covers
-every process it starts. All libraries get the same thread budget, are warmed up on a few images
+every process it starts. Peak memory is anonymous memory, leaving out page cache, which the
+kernel can drop. All libraries get the same thread budget, are warmed up on a few images
 first so one-off work like downloading model weights isn't timed, and run in shuffled order.
 Each run's raw results are saved as JSON, and each dataset's summary to a CSV file, one row per
 library. fastdup only runs on CPython 3.12 on Linux x86_64 or macOS arm64, and is skipped
@@ -276,7 +277,7 @@ def summarize(results: dict[str, Result]) -> None:
         if baseline is not None and key != "immaculate":
             timing += f", {seconds / statistics.median(baseline.seconds):.1f}x Immaculate"
         memory = f"{statistics.median(result.peak_bytes) / 2**20:.0f} MiB peak"
-        if result.memory_method != "cgroup":
+        if result.memory_method != "cgroup-anon":
             memory += " (largest process only)"
         duplicates = result.duplicates
         if duplicates.exact is None:
