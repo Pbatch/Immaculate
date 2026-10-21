@@ -15,6 +15,9 @@ dependencies = [
     "onnxruntime>=1.17",
 ]
 
+[project.scripts]
+immaculate = "immaculate.__main__:cli"
+
 [project.urls]
 Documentation = "https://pbatch.github.io/Immaculate/"
 Repository = "https://github.com/Pbatch/Immaculate"
