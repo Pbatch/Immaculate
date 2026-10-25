@@ -38,7 +38,7 @@ wheels = [
 
 [[package]]
 name = "immaculate"
-version = "0.2.0"
+version = "0.3.0"
 source = { directory = "../../../" }
 
 [package.optional-dependencies]
@@ -62,7 +62,8 @@ benchmark = [
 ]
 dev = [
     { name = "immaculate-onnx", editable = "../../../immaculate-onnx" },
-    { name = "onnxruntime", specifier = "==1.31.0" },
+    { name = "onnxruntime", marker = "platform_machine != 'x86_64' or sys_platform != 'darwin'", specifier = "==1.31.0" },
+    { name = "onnxruntime", marker = "platform_machine == 'x86_64' and sys_platform == 'darwin'", specifier = "==1.23.2" },
     { name = "pillow", specifier = "==13.0.0" },
     { name = "pre-commit", specifier = "==4.6.1" },
     { name = "pytest", specifier = "==9.1.1" },
