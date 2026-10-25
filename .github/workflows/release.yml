@@ -2,7 +2,8 @@ name: Release
 
 # Builds the sdist and a wheel for each platform ONNX Runtime has wheels for, so the sscd extra
 # installs wherever Immaculate does, tests each wheel on its own platform, and on a version tag
-# publishes them, with the immaculate-onnx package, to PyPI; see DEPLOYMENT.md
+# publishes them to PyPI; see DEPLOYMENT.md. The immaculate-onnx package has its own workflow,
+# release-onnx.yml
 on:
   push:
     tags: ["v*"]
@@ -73,23 +74,11 @@ jobs:
           name: immaculate-sdist
           path: dist/*.tar.gz
 
-  # Pure Python, so one wheel serves every platform
-  onnx:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v5
-      - uses: astral-sh/setup-uv@v6
-      - run: uv build --package immaculate-onnx --out-dir dist
-      - uses: actions/upload-artifact@v4
-        with:
-          name: onnx
-          path: dist/*
-
   # Uploads use trusted publishing, so no tokens are stored; PyPI trusts this workflow in the
   # pypi environment, which needs approval
   publish-pypi:
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [wheels, sdist, onnx]
+    needs: [wheels, sdist]
     runs-on: ubuntu-latest
     environment:
       name: pypi
@@ -102,17 +91,14 @@ jobs:
           pattern: immaculate-*
           path: dist
           merge-multiple: true
-      - uses: actions/download-artifact@v4
-        with:
-          name: onnx
-          path: onnx-dist
       # PyPI never accepts a version twice, so a tag like v0.1.0-test mustn't upload 0.1.0
       - name: Check the tag matches the version
         run: test -f "dist/immaculate-${GITHUB_REF_NAME#v}.tar.gz"
-      # Before Immaculate, whose sscd extra pins it. Its version only changes with the models,
-      # so most releases have already uploaded it
-      - uses: pypa/gh-action-pypi-publish@release/v1
-        with:
-          packages-dir: onnx-dist/
-          skip-existing: true
+      # Otherwise installing the sscd extra would fail; release-onnx.yml publishes it
+      - name: Check the pinned immaculate-onnx is on PyPI
+        run: |
+          version=$(tar -xzOf dist/immaculate-*.tar.gz --wildcards '*/PKG-INFO' \
+            | sed -n 's/^Requires-Dist: immaculate-onnx==\([^ ;]*\).*/\1/p')
+          test -n "$version"
+          curl -fsS -o /dev/null "https://pypi.org/pypi/immaculate-onnx/$version/json"
       - uses: pypa/gh-action-pypi-publish@release/v1

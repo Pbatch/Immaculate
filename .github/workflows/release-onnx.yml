@@ -1,0 +1,47 @@
+name: Release immaculate-onnx
+
+# Builds the immaculate-onnx package and, on an immaculate-onnx-v<version> tag, publishes it to
+# PyPI; see DEPLOYMENT.md. It is a workflow of its own, not a job in release.yml, so its trusted
+# publisher differs from immaculate's: PyPI would otherwise give the upload immaculate's token,
+# which can't create or upload to another project
+on:
+  push:
+    tags: ["immaculate-onnx-v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  # Pure Python, so one wheel serves every platform
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v6
+      - run: uv build --package immaculate-onnx --out-dir dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: immaculate-onnx
+          path: dist/*
+
+  # Uploads use trusted publishing, so no tokens are stored; PyPI trusts this workflow in the
+  # pypi environment, which needs approval
+  publish-pypi:
+    if: startsWith(github.ref, 'refs/tags/immaculate-onnx-v')
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/project/immaculate-onnx/
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: immaculate-onnx
+          path: dist
+      # PyPI never accepts a version twice, so a test tag mustn't upload the real version
+      - name: Check the tag matches the version
+        run: test -f "dist/immaculate_onnx-${GITHUB_REF_NAME#immaculate-onnx-v}.tar.gz"
+      - uses: pypa/gh-action-pypi-publish@release/v1
