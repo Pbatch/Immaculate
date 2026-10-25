@@ -123,7 +123,7 @@ def test_hashes_are_unchanged(tmp_path: Path, name: str, phash: int, pdq: str) -
 
 
 def test_version() -> None:
-    assert immaculate.__version__ == "0.2.0"
+    assert immaculate.__version__ == "0.3.0"
 
 
 def test_exact_duplicates_match_on_pixels_not_file_bytes(tmp_path: Path) -> None:
