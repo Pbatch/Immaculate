@@ -12,8 +12,8 @@ crate-type = ["cdylib"]
 
 [dependencies]
 image = { version = "0.25.10", default-features = false, features = ["bmp", "gif", "jpeg", "png", "tiff", "webp"] }
-# ONNX Runtime is loaded at runtime from the onnxruntime Python package, so it isn't built into
-# the wheel. Without the api-* features ort needs only ONNX Runtime 1.17 or later.
+# ONNX Runtime is loaded at runtime from the onnxruntime Python package, which the sscd extra
+# installs, so it isn't built into the wheel. Without the api-* features ort needs only ONNX Runtime 1.17 or later.
 ort = { version = "=2.0.0-rc.14", default-features = false, features = ["load-dynamic", "std"] }
 pyo3 = { version = "0.30.1", features = ["abi3-py312"] }
 rayon = "1.12.0"

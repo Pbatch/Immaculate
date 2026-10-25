@@ -1,8 +1,8 @@
 name: Release
 
-# Builds the sdist and a wheel for each platform ONNX Runtime has wheels for, tests each
-# wheel on its own platform, and on a version tag publishes them to TestPyPI, then PyPI; see
-# DEPLOYMENT.md
+# Builds the sdist and a wheel for each platform ONNX Runtime has wheels for, so the sscd extra
+# installs wherever Immaculate does, tests each wheel on its own platform, and on a version tag
+# publishes them, with the immaculate-onnx package, to PyPI; see DEPLOYMENT.md
 on:
   push:
     tags: ["v*"]
@@ -41,8 +41,9 @@ jobs:
           # ONNX Runtime's own Linux wheels need glibc 2.28
           manylinux: "2_28"
       - uses: astral-sh/setup-uv@v6
-      # Tests the built wheel, not the source tree: the dev group has no project, so syncing
-      # it doesn't build Immaculate
+      # Tests the built wheel, not the source tree: the dev group doesn't include Immaculate,
+      # so syncing it doesn't build it. It does install immaculate-onnx from the source tree,
+      # for the tests of the SSCD methods
       - name: Test the wheel
         shell: bash
         # Only uv sync is given the Python: with UV_PYTHON set, uv pip would install into that
@@ -55,7 +56,7 @@ jobs:
           uv run --no-sync pytest
       - uses: actions/upload-artifact@v4
         with:
-          name: wheel-${{ matrix.os }}
+          name: immaculate-wheel-${{ matrix.os }}
           path: dist/*.whl
 
   sdist:
@@ -69,35 +70,26 @@ jobs:
           args: --out dist
       - uses: actions/upload-artifact@v4
         with:
-          name: sdist
+          name: immaculate-sdist
           path: dist/*.tar.gz
 
-  # Uploads use trusted publishing, so no tokens are stored; each index trusts this workflow
-  # in the environment named below
-  publish-testpypi:
-    if: startsWith(github.ref, 'refs/tags/v')
-    needs: [wheels, sdist]
+  # Pure Python, so one wheel serves every platform
+  onnx:
     runs-on: ubuntu-latest
-    environment:
-      name: testpypi
-      url: https://test.pypi.org/project/immaculate/
-    permissions:
-      id-token: write
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v6
+      - run: uv build --package immaculate-onnx --out-dir dist
+      - uses: actions/upload-artifact@v4
         with:
-          path: dist
-          merge-multiple: true
-      # PyPI never accepts a version twice, so a tag like v0.1.0-test mustn't upload 0.1.0
-      - name: Check the tag matches the version
-        run: test -f "dist/immaculate-${GITHUB_REF_NAME#v}.tar.gz"
-      - uses: pypa/gh-action-pypi-publish@release/v1
-        with:
-          repository-url: https://test.pypi.org/legacy/
+          name: onnx
+          path: dist/*
 
-  # The pypi environment needs approval, so there's time to check the TestPyPI release first
+  # Uploads use trusted publishing, so no tokens are stored; PyPI trusts this workflow in the
+  # pypi environment, which needs approval
   publish-pypi:
-    needs: publish-testpypi
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [wheels, sdist, onnx]
     runs-on: ubuntu-latest
     environment:
       name: pypi
@@ -107,6 +99,20 @@ jobs:
     steps:
       - uses: actions/download-artifact@v4
         with:
+          pattern: immaculate-*
           path: dist
           merge-multiple: true
+      - uses: actions/download-artifact@v4
+        with:
+          name: onnx
+          path: onnx-dist
+      # PyPI never accepts a version twice, so a tag like v0.1.0-test mustn't upload 0.1.0
+      - name: Check the tag matches the version
+        run: test -f "dist/immaculate-${GITHUB_REF_NAME#v}.tar.gz"
+      # Before Immaculate, whose sscd extra pins it. Its version only changes with the models,
+      # so most releases have already uploaded it
+      - uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: onnx-dist/
+          skip-existing: true
       - uses: pypa/gh-action-pypi-publish@release/v1

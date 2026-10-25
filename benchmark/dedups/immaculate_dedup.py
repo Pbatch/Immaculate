@@ -1,5 +1,6 @@
 from pathlib import Path
 
+import immaculate_onnx
 from dedups.base_dedup import Dedup, Duplicates, to_sets
 from loguru import logger
 
@@ -15,7 +16,8 @@ class ImmaculateDedup(Dedup):
         self, threads: int, method: immaculate.Method = "pdq", sscd_model: str | None = None
     ) -> None:
         """`sscd_model`, a path relative to the repository's root, replaces the SSCD model
-        Immaculate ships, such as a student exported by dev/export_mobilenetv4_onnx.py."""
+        Immaculate's sscd extra installs, such as a student exported by
+        dev/export_mobilenetv4_onnx.py."""
         super().__init__(threads)
         self.method = method
         if method == "phash":
@@ -29,7 +31,7 @@ class ImmaculateDedup(Dedup):
             if not model.exists():
                 msg = f"{model} doesn't exist; export it with dev/export_mobilenetv4_onnx.py"
                 raise FileNotFoundError(msg)
-            immaculate._duplicates.SSCD_MODEL = model  # noqa: SLF001 - no public setting
+            immaculate_onnx.MODELS["sscd"] = model
             self.name = f"Immaculate SSCD ({model.stem})"
 
     def find_duplicates(self, images_dir: Path) -> Duplicates:

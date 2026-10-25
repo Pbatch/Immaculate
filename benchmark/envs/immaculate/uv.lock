@@ -7,14 +7,14 @@ name = "benchmark-immaculate"
 version = "0"
 source = { virtual = "." }
 dependencies = [
-    { name = "immaculate" },
+    { name = "immaculate", extra = ["sscd"] },
     { name = "loguru" },
     { name = "onnxruntime" },
 ]
 
 [package.metadata]
 requires-dist = [
-    { name = "immaculate", directory = "../../../" },
+    { name = "immaculate", extras = ["sscd"], directory = "../../../" },
     { name = "loguru", specifier = "==0.7.3" },
     { name = "onnxruntime", specifier = "==1.31.0" },
 ]
@@ -38,14 +38,21 @@ wheels = [
 
 [[package]]
 name = "immaculate"
-version = "0.1.0"
+version = "0.2.0"
 source = { directory = "../../../" }
-dependencies = [
+
+[package.optional-dependencies]
+sscd = [
+    { name = "immaculate-onnx" },
     { name = "onnxruntime" },
 ]
 
 [package.metadata]
-requires-dist = [{ name = "onnxruntime", specifier = ">=1.17" }]
+requires-dist = [
+    { name = "immaculate-onnx", marker = "extra == 'sscd'", editable = "../../../immaculate-onnx" },
+    { name = "onnxruntime", marker = "extra == 'sscd'", specifier = ">=1.17" },
+]
+provides-extras = ["sscd"]
 
 [package.metadata.requires-dev]
 benchmark = [
@@ -54,6 +61,8 @@ benchmark = [
     { name = "pyarrow", specifier = "==26.0.0" },
 ]
 dev = [
+    { name = "immaculate-onnx", editable = "../../../immaculate-onnx" },
+    { name = "onnxruntime", specifier = "==1.31.0" },
     { name = "pillow", specifier = "==13.0.0" },
     { name = "pre-commit", specifier = "==4.6.1" },
     { name = "pytest", specifier = "==9.1.1" },
@@ -67,6 +76,11 @@ docs = [
     { name = "mkdocstrings-python", specifier = "==2.0.9" },
     { name = "ruff", specifier = "==0.16.1" },
 ]
+
+[[package]]
+name = "immaculate-onnx"
+version = "0.1.0"
+source = { editable = "../../../immaculate-onnx" }
 
 [[package]]
 name = "loguru"
