@@ -62,9 +62,9 @@ immaculate photos/ --method sscd  # pdq (default), phash, sscd or sscd_distilled
 | czkawka (rotations and flips) | 23.49 s | 116 MiB | 4,359 | 100% | 16.1% |
 | CleanVision | 26.03 s | 520 MiB | 1,693 | 100% | 6.3% |
 | fastdup | 32.26 s | 279 MiB | 9,443 | 100% | 35.0% |
-| Immaculate (`sscd_distilled`) | 44.08 s | 144 MiB | 19,886 | 100% | 73.6% |
+| Immaculate (`sscd_distilled`) | 36.71 s | 141 MiB | 19,886 | 100% | 73.6% |
 | imagededup (`CNN`) | 65.00 s | 1,414 MiB | 20,620 | 98.8% | 75.5% |
-| Immaculate (`sscd`) | 186.52 s | 189 MiB | 23,196 | 100% | **85.9%** |
+| Immaculate (`sscd`) | 172.51 s | 189 MiB | 23,196 | 100% | **85.9%** |
 
 ```bash
 uv run benchmark/benchmark_duplicates.py --dataset ukbench-transformed --dedup immaculate immaculate-phash immaculate-sscd immaculate-sscd-distilled imagededup-cnn cleanvision fastdup imagehash czkawka czkawka-dihedral
@@ -79,7 +79,7 @@ uv run benchmark/benchmark_duplicates.py --dataset ukbench-transformed --dedup i
 | Immaculate (`pdq`) | **23.48 s** | **146 MiB** | 1,731 | 100% | 17.3% |
 | imagehash (`pHash`) | 35.89 s | 620 MiB | 316 | 100% | 3.2% |
 | czkawka | 38.64 s | 194 MiB | 89 | 96.6% | 0.9% |
-| Immaculate (`sscd_distilled`) | 307.53 s | 488 MiB | 1,987 | 99.9% | **19.9%** |
+| Immaculate (`sscd_distilled`) | 243.23 s | 488 MiB | 1,987 | 99.9% | **19.9%** |
 
 ```bash
 uv run benchmark/benchmark_duplicates.py --dataset disc2021 --dedup immaculate immaculate-sscd-distilled czkawka imagehash
