@@ -3,7 +3,7 @@ name = "benchmark-immaculate"
 version = "0"
 requires-python = "==3.12.*"
 dependencies = [
-    "immaculate",
+    "immaculate[sscd]",
     "loguru==0.7.3",
     "onnxruntime==1.31.0",
 ]
@@ -14,3 +14,4 @@ package = false
 [tool.uv.sources]
 # Built from this repository as a release wheel, like users would install it
 immaculate = { path = "../../..", editable = false }
+immaculate-onnx = { path = "../../../immaculate-onnx", editable = false }

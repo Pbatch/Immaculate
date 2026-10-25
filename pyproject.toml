@@ -10,8 +10,14 @@ classifiers = [
     "Programming Language :: Python :: 3",
 ]
 requires-python = ">=3.12"
-dependencies = [
-    # Runs the "sscd" method's model; the Rust bindings need 1.17 or later
+dependencies = []
+
+[project.optional-dependencies]
+sscd = [
+    # The "sscd" and "sscd_distilled" methods' models, in their own package because they would
+    # be nearly all of the size of Immaculate's wheels
+    "immaculate-onnx==0.1.0",
+    # Runs the models; the Rust bindings need 1.17 or later
     "onnxruntime>=1.17",
 ]
 
@@ -32,6 +38,10 @@ benchmark = [
     "pyarrow==26.0.0",
 ]
 dev = [
+    # The tests run the SSCD methods, and the release workflow syncs this group without the
+    # project, so its sscd extra isn't installed
+    "immaculate-onnx",
+    "onnxruntime==1.31.0",
     "pillow==13.0.0",
     "pre-commit==4.6.1",
     "pytest==9.1.1",
@@ -58,12 +68,20 @@ features = ["pyo3/extension-module"]
 exclude = [
     { path = "benchmark/**/*", format = "sdist" },
     { path = "DEPLOYMENT.md", format = "sdist" },
+    # Published as its own package, immaculate-onnx
+    { path = "immaculate-onnx/**/*", format = "sdist" },
 ]
 
 [tool.uv]
 # Rebuild the Rust extension when its sources change
 cache-keys = [{ file = "pyproject.toml" }, { file = "Cargo.toml" }, { file = "rust/**/*.rs" }]
 default-groups = ["dev", "benchmark"]
+
+[tool.uv.workspace]
+members = ["immaculate-onnx"]
+
+[tool.uv.sources]
+immaculate-onnx = { workspace = true }
 
 [tool.pytest.ini_options]
 addopts = "-q"

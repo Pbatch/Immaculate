@@ -6,6 +6,7 @@ Find exact and near-duplicate images in a folder, fast.
 
 ```bash
 pip install immaculate
+pip install "immaculate[sscd]"  # adds ONNX Runtime and the models for the sscd and sscd_distilled methods
 ```
 
 ## Usage

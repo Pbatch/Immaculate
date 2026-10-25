@@ -1,0 +1,18 @@
+[project]
+name = "immaculate-onnx"
+# Versioned on its own and pinned by Immaculate's sscd extra; bump it only when a model changes
+version = "0.1.0"
+description = "The models for Immaculate's sscd and sscd_distilled methods."
+readme = "README.md"
+authors = [{ name = "Peter Batchelor" }]
+license = "LicenseRef-Proprietary"
+license-files = ["LICENSE", "src/immaculate_onnx/SSCD_LICENSE"]
+requires-python = ">=3.12"
+dependencies = []
+
+[project.urls]
+Repository = "https://github.com/Pbatch/Immaculate"
+
+[build-system]
+requires = ["uv_build==0.11.22"]
+build-backend = "uv_build"

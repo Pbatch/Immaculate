@@ -33,7 +33,7 @@ use pyo3::prelude::*;
 use pyo3::types::PyTuple;
 use rayon::prelude::*;
 use walkdir::WalkDir;
-use xxhash_rust::xxh3::Xxh3Default;
+use xxhash_rust::xxh3::{Xxh3Default, xxh3_128};
 
 use crate::pdq::Pdq;
 use crate::perceptual_hash::PerceptualHash;
@@ -167,6 +167,53 @@ fn pixel_hash(image: &DynamicImage) -> u128 {
     hasher.digest128()
 }
 
+/// For each image, the index of the first image whose file has the same contents, which is
+/// its own index if no earlier file does.
+///
+/// Only files whose size another file shares are read, and their contents compared by 128-bit
+/// xxh3, so a folder without byte-identical copies costs little more than a `stat` per file.
+/// A file that can't be read or measured is treated as unique, to be skipped when it fails to
+/// decode. Stops early if `cancelled` is set.
+fn first_identical_files(
+    images: &[PathBuf],
+    cancelled: &AtomicBool,
+) -> Result<Vec<usize>, DedupError> {
+    let sizes: Vec<Option<u64>> = images
+        .par_iter()
+        .map(|path| fs::metadata(path).ok().map(|metadata| metadata.len()))
+        .collect();
+    let mut files_by_size: HashMap<u64, usize> = HashMap::new();
+    for &size in sizes.iter().flatten() {
+        *files_by_size.entry(size).or_default() += 1;
+    }
+    let contents: Vec<Option<(usize, u128)>> = images
+        .par_iter()
+        .zip(&sizes)
+        .map(|(path, size)| {
+            if cancelled.load(Ordering::Relaxed) {
+                return Err(DedupError::Cancelled);
+            }
+            let shared = size.is_some_and(|size| files_by_size[&size] > 1);
+            // The length is read again in case the file changed since it was measured
+            Ok(shared
+                .then(|| fs::read(path).ok())
+                .flatten()
+                .map(|bytes| (bytes.len(), xxh3_128(&bytes))))
+        })
+        .collect::<Result<_, DedupError>>()?;
+
+    let mut first_with_contents: HashMap<(usize, u128), usize> = HashMap::new();
+    Ok(contents
+        .into_iter()
+        .enumerate()
+        .map(|(index, key)| {
+            key.map_or(index, |key| {
+                *first_with_contents.entry(key).or_insert(index)
+            })
+        })
+        .collect())
+}
+
 struct ImageHashes<H> {
     pixels: u128,
     perceptual: H,
@@ -239,24 +286,32 @@ fn find_duplicate_images<P: PerceptualHash>(
     let images = find_images(input_dir, &progress.cancelled)?;
     // Only this function sets it, once
     let _ = progress.total.set(images.len());
+    // Byte-identical files are decoded and hashed once, through the first of them
+    let firsts = first_identical_files(&images, &progress.cancelled)?;
+    let mut copies = vec![0; images.len()];
+    for &first in &firsts {
+        copies[first] += 1;
+    }
+    // Only set for the first of each set of byte-identical files
     let hashes: Vec<Option<ImageHashes<P::Hash>>> = images
         .par_iter()
-        .map(|path| {
+        .zip(&copies)
+        .map(|(path, &copies)| {
+            if copies == 0 {
+                return Ok(None);
+            }
             if progress.cancelled.load(Ordering::Relaxed) {
                 return Err(DedupError::Cancelled);
             }
             let hashes = hash_image(path, method);
-            progress.done.fetch_add(1, Ordering::Relaxed);
+            progress.done.fetch_add(copies, Ordering::Relaxed);
             hashes
         })
         .collect::<Result<_, DedupError>>()?;
+    let image_hashes = |index: usize| hashes[firsts[index]].as_ref();
 
-    let loaded = || {
-        hashes
-            .iter()
-            .enumerate()
-            .filter_map(|(index, hashes)| hashes.as_ref().map(|hashes| (index, hashes)))
-    };
+    let loaded =
+        || (0..images.len()).filter_map(|index| image_hashes(index).map(|hashes| (index, hashes)));
     let exact = group_by_key(loaded().map(|(index, hashes)| (index, hashes.pixels)));
     let perceptual: Vec<(usize, &P::Hash)> = loaded()
         .map(|(index, hashes)| (index, &hashes.perceptual))
@@ -276,10 +331,10 @@ fn find_duplicate_images<P: PerceptualHash>(
             })
             .collect()
     };
-    let skipped = hashes
+    let skipped = images
         .iter()
-        .zip(&images)
-        .filter(|(hashes, _)| hashes.is_none())
+        .enumerate()
+        .filter(|&(index, _)| image_hashes(index).is_none())
         .map(|(_, path)| path.clone())
         .collect();
     Ok(Duplicates {

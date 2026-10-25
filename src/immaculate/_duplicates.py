@@ -9,15 +9,8 @@ from immaculate import _core
 type Method = Literal["pdq", "phash", "sscd", "sscd_distilled"]
 """How near duplicates are found; see `find_duplicates`."""
 
-SSCD_MODEL = Path(__file__).parent / "models" / "sscd.onnx"
-"""SSCD's `sscd_disc_mixup` model quantised to int8 for ONNX Runtime. Meta's weights are MIT
-licensed; see `SSCD_LICENSE` in the same folder."""
-SSCD_DISTILLED_MODEL = Path(__file__).parent / "models" / "sscd_distilled.onnx"
-"""A MobileNetV4 Conv-S student trained to reproduce SSCD's embeddings, with fp16 weights and
-fp32 maths, made by `dev/export_mobilenetv4_onnx.py`. Its trunk starts from timm's
-ImageNet-trained weights (Apache 2.0), and it was distilled from SSCD (`SSCD_LICENSE`) on
-Conceptual Captions 3M images."""
-SSCD_MODELS: dict[str, Path] = {"sscd": SSCD_MODEL, "sscd_distilled": SSCD_DISTILLED_MODEL}
+SSCD_METHODS = ("sscd", "sscd_distilled")
+"""The methods that need the `sscd` extra, which installs ONNX Runtime and their models."""
 
 
 class Duplicates(NamedTuple):
@@ -52,8 +45,9 @@ def find_duplicates(
       library. Catches resized and recompressed copies.
     - `"sscd"`: images whose embeddings from Meta's SSCD copy detection model
       have cosine similarity of at least 0.75. Catches heavier edits than hashes, such as
-      crops and overlays, but is much slower. The model ships with Immaculate, quantised to
-      int8, and is run with ONNX Runtime. Matches chain, as with `"pdq"`.
+      crops and overlays, but is much slower. The model, quantised to int8, and ONNX Runtime,
+      which runs it, come with the `sscd` extra: `pip install "immaculate[sscd]"`. Matches
+      chain, as with `"pdq"`.
     - `"sscd_distilled"`: as `"sscd"`, with the same 0.75 threshold, but using a small
       MobileNetV4 model trained to reproduce SSCD's embeddings. About 4x faster than
       `"sscd"`, at some cost in recall.
@@ -65,21 +59,29 @@ def find_duplicates(
 
     Raises `FileNotFoundError` or `NotADirectoryError` if `input_dir` is not a folder,
     `OSError` if part of it cannot be read, `ValueError` for an unknown `method`,
-    `ModuleNotFoundError` if `"sscd"` or `"sscd_distilled"` is used but ONNX Runtime, one of
-    Immaculate's dependencies, is missing, and `RuntimeError` if ONNX Runtime can't load the
-    model.
+    `ModuleNotFoundError` if `"sscd"` or `"sscd_distilled"` is used without the `sscd` extra,
+    and `RuntimeError` if ONNX Runtime can't load the model.
     """
-    if method in SSCD_MODELS:
+    if method in SSCD_METHODS:
         return Duplicates(
             *_core.find_duplicates(
                 input_dir,
                 method,
-                SSCD_MODELS[method],
+                _sscd_model(method),
                 _onnxruntime_library(method),
                 progress=progress,
             )
         )
     return Duplicates(*_core.find_duplicates(input_dir, method, progress=progress))
+
+
+def _sscd_model(method: str) -> Path:
+    """The model `method` runs, from the `immaculate-onnx` package."""
+    try:
+        import immaculate_onnx  # noqa: PLC0415 - only installed with the sscd extra
+    except ModuleNotFoundError:
+        raise ModuleNotFoundError(_missing_sscd_extra(method)) from None
+    return immaculate_onnx.MODELS[method]
 
 
 def _onnxruntime_library(method: str = "sscd") -> Path:
@@ -95,8 +97,11 @@ def _onnxruntime_library(method: str = "sscd") -> Path:
         )
         if libraries:
             return libraries[0]
-    msg = (
-        f'method "{method}" needs ONNX Runtime, which is missing; install it with: '
-        "pip install onnxruntime"
+    raise ModuleNotFoundError(_missing_sscd_extra(method))
+
+
+def _missing_sscd_extra(method: str) -> str:
+    return (
+        f'method "{method}" needs the sscd extra, which is missing; install it with: '
+        'pip install "immaculate[sscd]"'
     )
-    raise ModuleNotFoundError(msg)

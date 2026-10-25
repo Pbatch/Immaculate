@@ -2,6 +2,12 @@ version = 1
 revision = 3
 requires-python = ">=3.12"
 
+[manifest]
+members = [
+    "immaculate",
+    "immaculate-onnx",
+]
+
 [[package]]
 name = "babel"
 version = "2.18.0"
@@ -261,7 +267,10 @@ wheels = [
 name = "immaculate"
 version = "0.2.0"
 source = { editable = "." }
-dependencies = [
+
+[package.optional-dependencies]
+sscd = [
+    { name = "immaculate-onnx" },
     { name = "onnxruntime" },
 ]
 
@@ -272,6 +281,8 @@ benchmark = [
     { name = "pyarrow" },
 ]
 dev = [
+    { name = "immaculate-onnx" },
+    { name = "onnxruntime" },
     { name = "pillow" },
     { name = "pre-commit" },
     { name = "pytest" },
@@ -287,7 +298,11 @@ docs = [
 ]
 
 [package.metadata]
-requires-dist = [{ name = "onnxruntime", specifier = ">=1.17" }]
+requires-dist = [
+    { name = "immaculate-onnx", marker = "extra == 'sscd'", editable = "immaculate-onnx" },
+    { name = "onnxruntime", marker = "extra == 'sscd'", specifier = ">=1.17" },
+]
+provides-extras = ["sscd"]
 
 [package.metadata.requires-dev]
 benchmark = [
@@ -296,6 +311,8 @@ benchmark = [
     { name = "pyarrow", specifier = "==26.0.0" },
 ]
 dev = [
+    { name = "immaculate-onnx", editable = "immaculate-onnx" },
+    { name = "onnxruntime", specifier = "==1.31.0" },
     { name = "pillow", specifier = "==13.0.0" },
     { name = "pre-commit", specifier = "==4.6.1" },
     { name = "pytest", specifier = "==9.1.1" },
@@ -309,6 +326,11 @@ docs = [
     { name = "mkdocstrings-python", specifier = "==2.0.9" },
     { name = "ruff", specifier = "==0.16.1" },
 ]
+
+[[package]]
+name = "immaculate-onnx"
+version = "0.1.0"
+source = { editable = "immaculate-onnx" }
 
 [[package]]
 name = "iniconfig"

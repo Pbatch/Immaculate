@@ -2,6 +2,7 @@ import importlib.metadata
 import importlib.util
 import json
 import os
+import re
 import subprocess
 import sys
 from collections.abc import Callable
@@ -9,13 +10,14 @@ from pathlib import Path
 from typing import get_args
 
 import pytest
+from immaculate_onnx import SSCD_DISTILLED_MODEL, SSCD_MODEL
 from PIL import Image, ImageDraw, ImageFilter, ImageOps
 
 import immaculate
 from immaculate import Duplicates, Method, _core, find_duplicates
 from immaculate.__main__ import cli
 from immaculate.__main__ import main as cli_main
-from immaculate._duplicates import SSCD_DISTILLED_MODEL, SSCD_MODEL, _onnxruntime_library
+from immaculate._duplicates import _onnxruntime_library
 
 METHODS: tuple[Method, ...] = get_args(Method.__value__)
 HASH_METHODS = tuple(method for method in METHODS if method not in {"sscd", "sscd_distilled"})
@@ -135,6 +137,26 @@ def test_exact_duplicates_match_on_pixels_not_file_bytes(tmp_path: Path) -> None
     assert find_duplicates(tmp_path) == Duplicates(exact=[[png, bmp, nested]], near=[], skipped=[])
 
 
+@pytest.mark.parametrize("method", METHODS)
+def test_byte_identical_copies_share_results(tmp_path: Path, method: Method) -> None:
+    image = make_image(1)
+    original = save(image, tmp_path / "a.png")
+    copy = tmp_path / "b.png"
+    copy.write_bytes(original.read_bytes())
+    pixel_copy = save(image, tmp_path / "c.png", compress_level=1)
+    recompressed = save(image, tmp_path / "d.jpg", quality=90)
+    corrupt = tmp_path / "e.png"
+    corrupt.write_bytes(b"not an image")
+    corrupt_copy = tmp_path / "f.png"
+    corrupt_copy.write_bytes(b"not an image")
+
+    result = find_duplicates(tmp_path, method)
+
+    assert result.exact == [[original, copy, pixel_copy]]
+    assert result.near == [[original, copy, pixel_copy, recompressed]]
+    assert result.skipped == [corrupt, corrupt_copy]
+
+
 @pytest.mark.parametrize("method", HASH_METHODS)
 def test_near_duplicates(tmp_path: Path, method: Method) -> None:
     image = make_image(1)
@@ -211,7 +233,7 @@ def test_sscd_matches_crops(tmp_path: Path) -> None:
     assert find_duplicates(tmp_path).near == []
 
 
-def test_sscd_models_are_bundled() -> None:
+def test_sscd_models_are_packaged() -> None:
     assert SSCD_MODEL.is_file()
     assert SSCD_DISTILLED_MODEL.is_file()
     assert (SSCD_MODEL.parent / "SSCD_LICENSE").is_file()
@@ -222,7 +244,17 @@ def test_sscd_needs_onnxruntime(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, method: Method
 ) -> None:
     monkeypatch.setattr(importlib.util, "find_spec", lambda _: None)
-    with pytest.raises(ModuleNotFoundError, match="pip install onnxruntime"):
+    with pytest.raises(ModuleNotFoundError, match=re.escape('pip install "immaculate[sscd]"')):
+        find_duplicates(tmp_path, method)
+
+
+@pytest.mark.parametrize("method", ["sscd", "sscd_distilled"])
+def test_sscd_needs_its_models(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, method: Method
+) -> None:
+    # None in sys.modules makes importing the package raise ModuleNotFoundError
+    monkeypatch.setitem(sys.modules, "immaculate_onnx", None)
+    with pytest.raises(ModuleNotFoundError, match=re.escape('pip install "immaculate[sscd]"')):
         find_duplicates(tmp_path, method)
 
 
@@ -280,7 +312,8 @@ def test_progress_ends_with_every_image_done(tmp_path: Path, method: Method) -> 
     for seed in range(3):
         save(make_image(seed), tmp_path / f"{seed}.png")
     (tmp_path / "corrupt.png").write_bytes(b"not an image")
-    images = 4
+    (tmp_path / "copy.png").write_bytes((tmp_path / "0.png").read_bytes())
+    images = 5
     calls: list[tuple[int, int]] = []
 
     find_duplicates(tmp_path, method, progress=lambda done, total: calls.append((done, total)))
