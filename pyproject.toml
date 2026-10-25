@@ -41,7 +41,9 @@ dev = [
     # The tests run the SSCD methods, and the release workflow syncs this group without the
     # project, so its sscd extra isn't installed
     "immaculate-onnx",
-    "onnxruntime==1.31.0",
+    # ONNX Runtime's last Intel Mac wheels are 1.23.2
+    "onnxruntime==1.31.0; sys_platform != 'darwin' or platform_machine != 'x86_64'",
+    "onnxruntime==1.23.2; sys_platform == 'darwin' and platform_machine == 'x86_64'",
     "pillow==13.0.0",
     "pre-commit==4.6.1",
     "pytest==9.1.1",
