@@ -1,5 +1,10 @@
 # Immaculate
 
+[![PyPI](https://img.shields.io/pypi/v/immaculate)](https://pypi.org/project/immaculate/)
+[![Python](https://img.shields.io/pypi/pyversions/immaculate)](https://pypi.org/project/immaculate/)
+[![CI](https://github.com/Pbatch/Immaculate/actions/workflows/ci.yml/badge.svg)](https://github.com/Pbatch/Immaculate/actions/workflows/ci.yml)
+[![Docs](https://img.shields.io/badge/docs-pbatch.github.io-blue)](https://pbatch.github.io/Immaculate/)
+
 Find exact and near-duplicate images in a folder, fast.
 
 ## Installation
