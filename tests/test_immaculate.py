@@ -307,6 +307,34 @@ def test_accepts_str_path(tmp_path: Path) -> None:
     assert find_duplicates(str(tmp_path)).exact == [[a, b]]
 
 
+def test_list_of_files(tmp_path: Path) -> None:
+    image = make_image(1)
+    a = save(image, tmp_path / "a.png")
+    b = save(image, tmp_path / "sub" / "b.bmp")
+    unlisted = save(image, tmp_path / "unlisted.png")
+    no_extension = save(image, tmp_path / "c.data", "PNG")
+    missing = tmp_path / "missing.png"
+
+    result = find_duplicates([str(no_extension), b, a, a, missing])
+
+    assert unlisted not in result.exact[0]
+    assert result == Duplicates(exact=[[a, no_extension, b]], near=[], skipped=[missing])
+
+
+def test_iterable_of_files(tmp_path: Path) -> None:
+    image = make_image(1)
+    paths = [save(image, tmp_path / f"{name}.png") for name in "ab"]
+
+    assert find_duplicates(path for path in paths).exact == [paths]
+
+
+def test_empty_list() -> None:
+    calls: list[tuple[int, int]] = []
+    result = find_duplicates([], progress=lambda done, total: calls.append((done, total)))
+    assert result == Duplicates(exact=[], near=[], skipped=[])
+    assert calls == [(0, 0)]
+
+
 @pytest.mark.parametrize("method", METHODS)
 def test_progress_ends_with_every_image_done(tmp_path: Path, method: Method) -> None:
     for seed in range(3):

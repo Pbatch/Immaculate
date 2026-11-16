@@ -24,6 +24,7 @@ result.exact  # sets of images with identical pixels
 result.near  # sets of near-duplicate images, such as resized or flipped copies
 result.skipped  # images that couldn't be decoded or are empty
 
+result = find_duplicates(["a.jpg", "b.png", "c.webp"])  # or search a list of files
 result = find_duplicates("photos/", method="sscd")  # also catch crops and other heavier edits
 result = find_duplicates("photos/", progress=lambda done, total: print(f"{done}/{total}"))
 ```

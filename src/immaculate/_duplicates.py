@@ -1,5 +1,5 @@
 import importlib.util
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from os import PathLike
 from pathlib import Path
 from typing import Literal, NamedTuple
@@ -20,20 +20,22 @@ class Duplicates(NamedTuple):
     """Sets of near-duplicate images, as matched by `method`, excluding sets already in
     `exact`."""
     skipped: list[Path]
-    """Images that could not be decoded or are empty."""
+    """Images that could not be read or decoded, or are empty."""
 
 
 def find_duplicates(
-    input_dir: str | PathLike[str],
+    input_dir: str | PathLike[str] | Iterable[str | PathLike[str]],
     method: Method = "pdq",
     *,
     progress: Callable[[int, int], object] | None = None,
 ) -> Duplicates:
-    """Find exact and near-duplicate images in a folder.
+    """Find exact and near-duplicate images in a folder or a list of files.
 
-    Searches `input_dir` recursively for image files (bmp, gif, jpeg, jpg, png, tif, tiff,
-    webp). Each set holds two or more paths, sorted, and sets are ordered by their first
-    path. Images with no duplicate are omitted.
+    `input_dir` is either a folder, searched recursively for image files (bmp, gif, jpeg, jpg,
+    png, tif, tiff, webp), or an iterable of image file paths, which are used as given
+    whatever their extension; a path listed twice counts once. Each set holds two or more
+    paths, sorted, and sets are ordered by their first path. Images with no duplicate are
+    omitted.
 
     `method` chooses how near duplicates are found:
 
@@ -57,8 +59,9 @@ def find_duplicates(
     and once more when the search succeeds. It is only called when `done` has changed. If it
     raises, the search stops and the exception is raised. Pressing Ctrl-C also stops it.
 
-    Raises `FileNotFoundError` or `NotADirectoryError` if `input_dir` is not a folder,
-    `OSError` if part of it cannot be read, `ValueError` for an unknown `method`,
+    Raises `FileNotFoundError` or `NotADirectoryError` if `input_dir` is a path but not a
+    folder, `OSError` if part of the folder cannot be read (listed files that cannot be read
+    are skipped instead), `ValueError` for an unknown `method`,
     `ModuleNotFoundError` if `"sscd"` or `"sscd_distilled"` is used without the `sscd` extra,
     and `RuntimeError` if ONNX Runtime can't load the model.
     """
