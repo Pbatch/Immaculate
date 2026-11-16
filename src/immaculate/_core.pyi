@@ -1,4 +1,4 @@
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from os import PathLike
 from pathlib import Path
 
@@ -10,7 +10,7 @@ PDQ_THRESHOLD: int
 SSCD_THRESHOLD: float
 
 def find_duplicates(
-    input_dir: str | PathLike[str],
+    input_dir: str | PathLike[str] | Iterable[str | PathLike[str]],
     method: Method = "pdq",
     model: str | PathLike[str] | None = None,
     onnxruntime: str | PathLike[str] | None = None,

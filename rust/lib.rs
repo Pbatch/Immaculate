@@ -108,6 +108,39 @@ fn is_image(path: &Path) -> bool {
         })
 }
 
+/// What to search: a folder, or a list of image files.
+enum Images {
+    Folder(PathBuf),
+    Files(Vec<PathBuf>),
+}
+
+impl Images {
+    /// A folder from a `str` or `os.PathLike`, or the files from any other iterable of them.
+    fn extract(images: &Bound<'_, PyAny>) -> PyResult<Self> {
+        if let Ok(folder) = images.extract::<PathBuf>() {
+            return Ok(Self::Folder(folder));
+        }
+        let files = images
+            .try_iter()?
+            .map(|path| path?.extract::<PathBuf>())
+            .collect::<PyResult<_>>()?;
+        Ok(Self::Files(files))
+    }
+
+    /// The images to search, sorted by path: the image files under a folder, or the listed
+    /// files without repeats.
+    fn list(self, cancelled: &AtomicBool) -> Result<Vec<PathBuf>, DedupError> {
+        match self {
+            Self::Folder(folder) => find_images(&folder, cancelled),
+            Self::Files(mut files) => {
+                files.sort_unstable();
+                files.dedup();
+                Ok(files)
+            }
+        }
+    }
+}
+
 /// Recursively lists image files under `input_dir`, sorted by path.
 ///
 /// Symlinks are not followed. Stops early if `cancelled` is set.
@@ -279,11 +312,11 @@ struct Duplicates {
 }
 
 fn find_duplicate_images<P: PerceptualHash>(
-    input_dir: &Path,
+    images: Images,
     method: &P,
     progress: &Progress,
 ) -> Result<Duplicates, DedupError> {
-    let images = find_images(input_dir, &progress.cancelled)?;
+    let images = images.list(&progress.cancelled)?;
     // Only this function sets it, once
     let _ = progress.total.set(images.len());
     // Byte-identical files are decoded and hashed once, through the first of them
@@ -400,7 +433,8 @@ fn run_with_progress<T: Send>(
     })
 }
 
-/// Find exact and near-duplicate images in a folder, finding near duplicates with `method`
+/// Find exact and near-duplicate images in `input_dir`, a folder or a list of image files,
+/// finding near duplicates with `method`
 /// (`"pdq"`, `"phash"`, `"sscd"` or `"sscd_distilled"`). `"sscd"` and `"sscd_distilled"` need
 /// `model`, an SSCD-style ONNX model (SSCD itself, or the `MobileNetV4` student distilled from
 /// it), and `onnxruntime`, the path to ONNX Runtime's `onnxruntime` library to run it with.
@@ -415,12 +449,13 @@ fn run_with_progress<T: Send>(
 )]
 fn find_duplicates(
     py: Python<'_>,
-    input_dir: PathBuf,
+    input_dir: Bound<'_, PyAny>,
     method: &str,
     model: Option<PathBuf>,
     onnxruntime: Option<PathBuf>,
     progress: Option<Bound<'_, PyAny>>,
 ) -> PyResult<(PathSets, PathSets, Vec<PathBuf>)> {
+    let images = Images::extract(&input_dir)?;
     let method = match (method, model, onnxruntime) {
         ("phash", None, None) => NearMethod::PHash,
         ("pdq", None, None) => NearMethod::Pdq,
@@ -455,9 +490,9 @@ fn find_duplicates(
         }
     };
     let duplicates = run_with_progress(py, progress.as_ref(), |progress| match &method {
-        NearMethod::PHash => find_duplicate_images(&input_dir, &PHash, progress),
-        NearMethod::Pdq => find_duplicate_images(&input_dir, &Pdq::default(), progress),
-        NearMethod::Sscd(sscd) => find_duplicate_images(&input_dir, sscd, progress),
+        NearMethod::PHash => find_duplicate_images(images, &PHash, progress),
+        NearMethod::Pdq => find_duplicate_images(images, &Pdq::default(), progress),
+        NearMethod::Sscd(sscd) => find_duplicate_images(images, sscd, progress),
     })?;
     Ok((duplicates.exact, duplicates.near, duplicates.skipped))
 }
