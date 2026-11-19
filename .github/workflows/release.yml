@@ -28,20 +28,20 @@ jobs:
             python-arch: arm64
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - id: python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: "3.12"
           architecture: ${{ matrix.python-arch }}
       - uses: dtolnay/rust-toolchain@stable
       - uses: PyO3/maturin-action@v1
         with:
-          maturin-version: v1.15.0
+          maturin-version: v1.16.0
           args: --release --out dist
           # ONNX Runtime's own Linux wheels need glibc 2.28
           manylinux: "2_28"
-      - uses: astral-sh/setup-uv@v6
+      - uses: astral-sh/setup-uv@v7
       # Tests the built wheel, not the source tree: the dev group doesn't include Immaculate,
       # so syncing it doesn't build it. It does install immaculate-onnx from the source tree,
       # for the tests of the SSCD methods
@@ -55,7 +55,7 @@ jobs:
           uv sync --locked --only-group dev --python "$PYTHON"
           uv pip install dist/*.whl
           uv run --no-sync pytest
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: immaculate-wheel-${{ matrix.os }}
           path: dist/*.whl
@@ -63,13 +63,13 @@ jobs:
   sdist:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - uses: PyO3/maturin-action@v1
         with:
-          maturin-version: v1.15.0
+          maturin-version: v1.16.0
           command: sdist
           args: --out dist
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: immaculate-sdist
           path: dist/*.tar.gz
@@ -86,7 +86,7 @@ jobs:
     permissions:
       id-token: write
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           pattern: immaculate-*
           path: dist

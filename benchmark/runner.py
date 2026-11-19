@@ -1,10 +1,13 @@
-"""Run one deduplicator on one folder and save what it found, with timing and memory, as JSON.
+"""Run one check of one library on one folder and save what it found, with timing and memory,
+as JSON.
 
-benchmark_duplicates.py starts this in the deduplicator's own environment, so it only imports
-that one library. On Linux with systemd it also runs in its own cgroup, whose anonymous memory
-covers every process the library starts.
+benchmark_duplicates.py and benchmark_checks.py start this in the library's own environment, so
+it only imports that one library. On Linux with systemd it also runs in its own cgroup, whose
+anonymous memory covers every process the library starts. With --list-checks, it prints the
+checks the library implements as JSON instead.
 
-    python benchmark/runner.py --dedup immaculate --images DIR --out result.json --threads 16
+    python benchmark/runner.py --checker immaculate --check dark --images DIR --out result.json \
+        --threads 16
 """
 
 import argparse
@@ -20,8 +23,8 @@ import traceback
 from pathlib import Path
 from typing import Any, Self
 
-from dedups.base_dedup import DuplicateSets
-from dedups.registry import DEDUPS
+from checkers.base_checker import CHECKS, DuplicateSets, Images, implements, method
+from checkers.registry import CHECKERS
 
 CGROUP_ROOT = Path("/sys/fs/cgroup")
 ANON_INTERVAL = 0.01
@@ -95,6 +98,10 @@ def relative(images_dir: Path, sets: DuplicateSets) -> list[list[str]]:
     return sorted(sorted(str(path.relative_to(images_dir)) for path in group) for group in sets)
 
 
+def relative_images(images_dir: Path, images: Images) -> list[str]:
+    return sorted(str(path.relative_to(images_dir)) for path in images)
+
+
 def versions(packages: tuple[str, ...]) -> dict[str, str]:
     found = {}
     for package in packages:
@@ -103,10 +110,23 @@ def versions(packages: tuple[str, ...]) -> dict[str, str]:
     return found
 
 
-def run(key: str, images_dir: Path, threads: int) -> dict[str, Any]:
-    spec = DEDUPS[key]
+def found_record(images_dir: Path, check: str, found: Any) -> dict[str, Any]:  # noqa: ANN401
+    """What `check` found, with paths relative to `images_dir`, for the record."""
+    if check == "duplicates":
+        return {
+            "exact": None if found.exact is None else relative(images_dir, found.exact),
+            "near": relative(images_dir, found.near),
+        }
+    return {"images": relative_images(images_dir, found)}
+
+
+def run(key: str, checks: list[str], images_dir: Path, threads: int) -> dict[str, Any]:
+    """Run `checks` of the checker `key` on `images_dir`: alone if there's one, or together,
+    through the checker's `find_issues`, if there are several."""
+    spec = CHECKERS[key]
     record: dict[str, Any] = {
-        "dedup": key,
+        "checker": key,
+        "checks": checks,
         "name": key,
         "threads": threads,
         "python": platform.python_version(),
@@ -114,32 +134,46 @@ def run(key: str, images_dir: Path, threads: int) -> dict[str, Any]:
     }
     start = time.perf_counter()
     try:
-        dedup = spec.create(threads)
-        record["name"] = dedup.name
-        duplicates = dedup.find_duplicates(images_dir)
+        checker = spec.create(threads)
+        record["name"] = checker.name
+        if not all(implements(type(checker), check) for check in checks):
+            return record | {"status": "unsupported"}
+        if len(checks) == 1:
+            found = {checks[0]: getattr(checker, method(checks[0]))(images_dir)}
+        else:
+            found = checker.find_issues(images_dir, checks)
     except ImportError as error:
         record |= {"status": "unavailable", "error": str(error)}
     except Exception:  # noqa: BLE001 - reported to the benchmark rather than crashing it
         record |= {"status": "error", "error": traceback.format_exc()}
     else:
-        record |= {
-            "status": "ok",
-            "seconds": time.perf_counter() - start,
-            "exact": None if duplicates.exact is None else relative(images_dir, duplicates.exact),
-            "near": relative(images_dir, duplicates.near),
-        }
+        record |= {"status": "ok", "seconds": time.perf_counter() - start}
+        if len(checks) == 1:
+            record |= found_record(images_dir, checks[0], found[checks[0]])
+        else:
+            record["found"] = {
+                check: found_record(images_dir, check, found[check]) for check in checks
+            }
     return record
 
 
-def main(dedup: str, images_dir: Path, out: Path, *, threads: int, cgroup: bool) -> None:
+def list_checks(key: str) -> list[str]:
+    """The checks the checker `key` implements, without running any."""
+    checker_class = CHECKERS[key].checker_class()
+    return [check for check in CHECKS if implements(checker_class, check)]
+
+
+def main(  # noqa: PLR0913 - one parameter per command-line option
+    checker: str, checks: list[str], images_dir: Path, out: Path, *, threads: int, cgroup: bool
+) -> None:
     group = cgroup_dir() if cgroup else None
     if group is None:
-        record = run(dedup, images_dir.resolve(), threads)
+        record = run(checker, checks, images_dir.resolve(), threads)
         record |= {"peak_memory_bytes": maxrss_peak(), "memory_method": "maxrss"}
     else:
         # Stopped before writing the JSON, so serializing the results isn't counted
         with AnonPeak(group) as anon:
-            record = run(dedup, images_dir.resolve(), threads)
+            record = run(checker, checks, images_dir.resolve(), threads)
         record |= {
             "peak_memory_bytes": anon.peak,
             "memory_method": "cgroup-anon",
@@ -150,12 +184,33 @@ def main(dedup: str, images_dir: Path, out: Path, *, threads: int, cgroup: bool)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    parser.add_argument("--dedup", required=True, choices=DEDUPS)
-    parser.add_argument("--images", type=Path, required=True)
-    parser.add_argument("--out", type=Path, required=True)
-    parser.add_argument("--threads", type=int, required=True)
+    parser.add_argument("--checker", required=True, choices=CHECKERS)
+    parser.add_argument(
+        "--check",
+        dest="checks",
+        nargs="+",
+        choices=CHECKS,
+        default=["duplicates"],
+        help="the check to run, or several to run together",
+    )
+    parser.add_argument("--list-checks", action="store_true", help="print the checks it has")
+    parser.add_argument("--images", type=Path)
+    parser.add_argument("--out", type=Path)
+    parser.add_argument("--threads", type=int)
     parser.add_argument(
         "--cgroup", action="store_true", help="measure memory with this process's cgroup"
     )
     args = parser.parse_args()
-    main(args.dedup, args.images, args.out, threads=args.threads, cgroup=args.cgroup)
+    if args.list_checks:
+        print(json.dumps(list_checks(args.checker)))
+    elif args.images is None or args.out is None or args.threads is None:
+        parser.error("--images, --out and --threads are required unless --list-checks is given")
+    else:
+        main(
+            args.checker,
+            args.checks,
+            args.images,
+            args.out,
+            threads=args.threads,
+            cgroup=args.cgroup,
+        )

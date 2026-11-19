@@ -3,7 +3,7 @@ name = "benchmark-czkawka"
 version = "0"
 requires-python = "==3.12.*"
 dependencies = [
-    # czkawka itself is a prebuilt binary, downloaded by dedups/czkawka_dedup.py
+    # czkawka itself is a prebuilt binary, downloaded by checkers/czkawka_checker.py
     "loguru==0.7.3",
 ]
 

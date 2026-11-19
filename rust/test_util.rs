@@ -1,6 +1,6 @@
 //! Helpers shared by the unit tests.
 
-use crate::pdq::Bits;
+use crate::near::pdq::Bits;
 
 /// xorshift64, for reproducible test data without a dependency.
 pub struct XorShift(pub u64);
