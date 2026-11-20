@@ -14,5 +14,5 @@ dependencies = []
 Repository = "https://github.com/Pbatch/Immaculate"
 
 [build-system]
-requires = ["uv_build==0.11.22"]
+requires = ["uv_build==0.13.9"]
 build-backend = "uv_build"

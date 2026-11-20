@@ -5,83 +5,69 @@
 [![CI](https://github.com/Pbatch/Immaculate/actions/workflows/ci.yml/badge.svg)](https://github.com/Pbatch/Immaculate/actions/workflows/ci.yml)
 [![Docs](https://img.shields.io/badge/docs-pbatch.github.io-blue)](https://pbatch.github.io/Immaculate/)
 
-Find exact and near-duplicate images in a folder, fast.
+Find problematic images fast.
 
 ## Installation
 
 ```bash
 pip install immaculate
-pip install "immaculate[sscd]"  # adds ONNX Runtime and the models for the sscd and sscd_distilled methods
 ```
 
 ## Usage
 
+![Seven bird photos: a robin and an edited copy of it, a blurry goldfinch, a great tit cut off by a truncated download, and a sharp woodpecker, nuthatch and blue tit](https://raw.githubusercontent.com/Pbatch/Immaculate/main/examples/overview.jpg)
+
 ```python
-from immaculate import find_duplicates
+from immaculate import Blurry, NearDuplicates, find_issues
 
-result = find_duplicates("photos/")  # searches subfolders too
-result.exact  # sets of images with identical pixels
-result.near  # sets of near-duplicate images, such as resized or flipped copies
-result.skipped  # images that couldn't be decoded or are empty
+issues = find_issues("photos/")
+issues.near_duplicates  # [[PosixPath('photos/robin.jpg'), PosixPath('photos/robin_edited.jpg')]]
+issues.blurry  # [PosixPath('photos/goldfinch.jpg')], and likewise for each check below
+issues.truncated  # [PosixPath('photos/great_tit.jpg')]
 
-result = find_duplicates(["a.jpg", "b.png", "c.webp"])  # or search a list of files
-result = find_duplicates("photos/", method="sscd")  # also catch crops and other heavier edits
-result = find_duplicates("photos/", progress=lambda done, total: print(f"{done}/{total}"))
+issues = find_issues("photos/", [NearDuplicates(), Blurry()])  # only some checks
 ```
 
 Or from the command line:
 
-```bash
-immaculate photos/                # readable summary
-immaculate photos/ --json         # {"exact": [[path, ...], ...], "near": [[path, ...], ...], "skipped": [path, ...]}
-immaculate photos/ --method sscd  # pdq (default), phash, sscd or sscd_distilled
+```console
+$ immaculate photos/ --issues near_duplicates blurry
+Near duplicates: 1 set
+
+  photos/robin.jpg
+  photos/robin_edited.jpg
+
+Blurry: 1 image
+  photos/goldfinch.jpg
 ```
 
-## Methods
+## Checks
 
-`method` (or `--method`) chooses how near duplicates are found:
+| Check | On the command line | Finds | Settings (defaults) |
+|---|---|---|---|
+| `ExactDuplicates` | `exact_duplicates` | Images with identical pixels, even if saved with different metadata or in another lossless format | |
+| `NearDuplicates` | `near_duplicates` | Resized, recompressed, flipped and rotated copies; see [methods](https://pbatch.github.io/Immaculate/checks/#near-duplicates) | `method` (`"pdq"`) |
+| `Dark` | `dark` | Images that are almost all dark | `brightness` (0.32), `fraction` (0.01) |
+| `Light` | `light` | Images that are almost all light | `brightness` (0.95), `fraction` (0.05) |
+| `Blurry` | `blurry` | Blurry images | `sharpness` (5.0) |
+| `LowInformation` | `low_information` | Images with few distinct colors, such as blank ones | `entropy` (3.0) |
+| `OddAspectRatio` | `odd_aspect_ratio` | Unusually long or tall images | `ratio` (0.35) |
+| `OddSize` | `odd_size` | Images much larger or smaller than the others | `iqr_factor` (3.0) |
+| `Grayscale` | `grayscale` | Grayscale images, including color files whose pixels are all gray | `tolerance` (2) |
+| `LowContrast` | `low_contrast` | Washed-out, foggy or otherwise flat-looking images | `contrast` (0.05) |
+| `Truncated` | `truncated` | Images whose files end early, such as interrupted downloads, which often still decode with a gray patch | |
 
-| Method | Catches |
-|---|---|
-| `"pdq"` (default) | Resized, recompressed, flipped and 90°-rotated copies |
-| `"phash"` | Resized and recompressed copies |
-| `"sscd_distilled"` | As `"sscd"`, using a small MobileNetV4 model distilled from SSCD; finds somewhat fewer |
-| `"sscd"` | Also crops, rotations by other angles and overlays, using Meta's SSCD copy detection model |
+Pass each check with its settings, such as `Dark(brightness=0.2)`, or `Dark()` for the defaults.
 
-## Benchmark
+See [checks](https://pbatch.github.io/Immaculate/checks/) for what each setting does.
 
-### UKBench (11k images, 27k pairs)
+## Benchmarks
 
-1,800 photos from [UKBench](https://archive.org/details/ukbench), each with five edited copies (a crop, horizontal and vertical flips, a 25° rotation and a resize to a square), as in [imagededup's benchmark](https://idealo.github.io/imagededup/user_guide/benchmarks/).
+Every check CleanVision has, run together on 250 images of [INRIA Copydays](https://thoth.inrialpes.fr/~jegou/data.php.html#copydays):
 
-| | Time | Peak memory | Pairs found | Precision | Recall |
-|---|---:|---:|---:|---:|---:|
-| Immaculate (`phash`) | **2.69 s** | **50 MiB** | 1,686 | 100% | 6.2% |
-| Immaculate (`pdq`) | 2.78 s | 56 MiB | 10,782 | 100% | 39.9% |
-| czkawka | 3.72 s | 61 MiB | 31 | 100% | 0.1% |
-| imagehash (`pHash`) | 4.06 s | 470 MiB | 1,693 | 100% | 6.3% |
-| czkawka (rotations and flips) | 23.49 s | 116 MiB | 4,359 | 100% | 16.1% |
-| CleanVision | 26.03 s | 520 MiB | 1,693 | 100% | 6.3% |
-| fastdup | 32.26 s | 279 MiB | 9,443 | 100% | 35.0% |
-| Immaculate (`sscd_distilled`) | 36.71 s | 141 MiB | 19,886 | 100% | 73.6% |
-| imagededup (`CNN`) | 65.00 s | 1,414 MiB | 20,620 | 98.8% | 75.5% |
-| Immaculate (`sscd`) | 172.51 s | 189 MiB | 23,196 | 100% | **85.9%** |
+| | Time | Peak memory | Images flagged |
+|---|---:|---:|---:|
+| Immaculate | **0.73 s** | **387 MiB** | 12 |
+| CleanVision | 14.12 s | 2,974 MiB | 12 |
 
-```bash
-uv run benchmark/benchmark_duplicates.py --dataset ukbench-transformed --dedup immaculate immaculate-phash immaculate-sscd immaculate-sscd-distilled imagededup-cnn cleanvision fastdup imagehash czkawka czkawka-dihedral
-```
-
-### DISC2021 (60k images, 10k pairs)
-
-50,000 development queries from Meta's [DISC2021](https://arxiv.org/abs/2106.09672) ([data](https://sites.google.com/view/isc2021/dataset)), plus the 10,000 reference photos that 10,000 of them copy with heavy edits (crops, overlays, filters, screenshots and blends).
-
-| | Time | Peak memory | Pairs found | Precision | Recall |
-|---|---:|---:|---:|---:|---:|
-| Immaculate (`pdq`) | **23.48 s** | **146 MiB** | 1,731 | 100% | 17.3% |
-| imagehash (`pHash`) | 35.89 s | 620 MiB | 316 | 100% | 3.2% |
-| czkawka | 38.64 s | 194 MiB | 89 | 96.6% | 0.9% |
-| Immaculate (`sscd_distilled`) | 243.23 s | 488 MiB | 1,987 | 99.9% | **19.9%** |
-
-```bash
-uv run benchmark/benchmark_duplicates.py --dataset disc2021 --dedup immaculate immaculate-sscd-distilled czkawka imagehash
-```
+See the [benchmarks](https://pbatch.github.io/Immaculate/benchmarks/) for how this was run, and for comparisons with other libraries.

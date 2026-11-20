@@ -35,6 +35,16 @@ class GroundTruth:
         """Whether a pair a library finds counts for or against it."""
         return pair not in self.ignored and (self.labelled is None or self.labelled(pair))
 
+    def within(self, images: set[Path]) -> "GroundTruth":
+        """The labels of only the pairs both of whose images are in `images`, for when a
+        library only sees some of the dataset."""
+        return GroundTruth(
+            {pair for pair in self.duplicates if pair <= images},
+            {pair for pair in self.ignored if pair <= images},
+            self.labelled,
+            self.complete,
+        )
+
 
 class Dataset(ABC):
     """A benchmark image dataset, stored in its own folder under the data directory."""

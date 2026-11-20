@@ -1,7 +1,7 @@
 [project]
 name = "Immaculate"
-version = "0.3.0"
-description = "Find exact and near-duplicate images in a folder, fast."
+version = "0.4.0"
+description = "Find problematic images fast."
 readme = "README.md"
 authors = [{ name = "Peter Batchelor" }]
 license = "LicenseRef-Proprietary"
@@ -33,33 +33,33 @@ Issues = "https://github.com/Pbatch/Immaculate/issues"
 benchmark = [
     # Only what benchmark_duplicates.py needs; each library has its own environment in
     # benchmark/envs
-    "loguru==0.7.3",
+    "loguru==0.8.0",
     "pillow==13.0.0",
-    "pyarrow==26.0.0",
+    "pyarrow==26.0.1",
 ]
 dev = [
     # The tests run the SSCD methods, and the release workflow syncs this group without the
     # project, so its sscd extra isn't installed
     "immaculate-onnx",
     # ONNX Runtime's last Intel Mac wheels are 1.23.2
-    "onnxruntime==1.31.0; sys_platform != 'darwin' or platform_machine != 'x86_64'",
+    "onnxruntime==1.32.0; sys_platform != 'darwin' or platform_machine != 'x86_64'",
     "onnxruntime==1.23.2; sys_platform == 'darwin' and platform_machine == 'x86_64'",
     "pillow==13.0.0",
-    "pre-commit==4.6.1",
-    "pytest==9.1.1",
-    "ruff==0.16.1",
-    "ty==0.0.65",
+    "pre-commit==4.7.0",
+    "pytest==9.2.0",
+    "ruff==0.17.6",
+    "ty==0.0.107",
 ]
 docs = [
     "mkdocs==1.6.1",
-    "mkdocs-material==9.7.7",
-    "mkdocstrings==1.0.7",
-    "mkdocstrings-python==2.0.9",
-    "ruff==0.16.1",
+    "mkdocs-material==9.8.2",
+    "mkdocstrings==1.0.8",
+    "mkdocstrings-python==2.0.11",
+    "ruff==0.17.6",
 ]
 
 [build-system]
-requires = ["maturin==1.15.0"]
+requires = ["maturin==1.16.0"]
 build-backend = "maturin"
 
 [tool.maturin]
@@ -70,6 +70,8 @@ features = ["pyo3/extension-module"]
 exclude = [
     { path = "benchmark/**/*", format = "sdist" },
     { path = "DEPLOYMENT.md", format = "sdist" },
+    # The README's example photos
+    { path = "examples/**/*", format = "sdist" },
     # Published as its own package, immaculate-onnx
     { path = "immaculate-onnx/**/*", format = "sdist" },
 ]
@@ -105,9 +107,13 @@ ignore = [
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["S101"]
-# Launching the deduplicators in subprocesses is its job; commands are built from fixed paths
-"benchmark/benchmark_duplicates.py" = ["S603", "S607"]
+# Launching the libraries in subprocesses is its job; commands are built from fixed paths
+"benchmark/launcher.py" = ["S603", "S607"]
+# Prints its results as Markdown tables
+"benchmark/report.py" = ["T201"]
+# Prints the checks a library implements, as JSON, for launcher.py to read
+"benchmark/runner.py" = ["T201"]
 
 [tool.ty.src]
 # The libraries the deduplicators wrap are only installed in their own environments
-exclude = ["benchmark/dedups/*_dedup.py", "benchmark/envs"]
+exclude = ["benchmark/checkers/*_checker.py", "benchmark/envs"]

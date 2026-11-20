@@ -1,5 +1,5 @@
 site_name: Immaculate
-site_description: Find exact and near-duplicate images in a folder, fast.
+site_description: Find problematic images fast.
 repo_url: https://github.com/Pbatch/Immaculate
 
 theme:
@@ -16,6 +16,8 @@ theme:
 
 nav:
   - Home: index.md
+  - Checks: checks.md
+  - Benchmarks: benchmarks.md
   - API reference: api.md
 
 markdown_extensions:
