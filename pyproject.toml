@@ -16,7 +16,7 @@ dependencies = []
 sscd = [
     # The "sscd" and "sscd_distilled" methods' models, in their own package because they would
     # be nearly all of the size of Immaculate's wheels
-    "immaculate-onnx==0.1.0",
+    "immaculate-onnx==0.2.0",
     # Runs the models; the Rust bindings need 1.17 or later
     "onnxruntime>=1.17",
 ]
